@@ -594,18 +594,16 @@ class AutoMoLi(hass.Hass):  # type: ignore
 
         # calling motion event handler
         data: dict[str, Any] = {"entity_id": entity, "new": new, "old": old}
-        await self.motion_event("motion_detected", data, kwargs)
+        await self.motion_event("motion_state_changed_detection", data, kwargs)
 
     async def motion_event(
         self, event: str, data: dict[str, str], _: dict[str, Any]
     ) -> None:
         """Main handler for motion events."""
 
-        outside_change = event == "outside_change_detected"
-
         self.lg(
             f"{stack()[0][3]}: received '{hl(event)}' event from "
-            f"'{data['entity_id'].replace(EntityType.MOTION.prefix, '')}' | {self.dimming = } | {outside_change = }",
+            f"'{data['entity_id'].replace(EntityType.MOTION.prefix, '')}' | {self.dimming = }",
             level=logging.DEBUG,
         )
 
@@ -625,7 +623,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 f"{stack()[0][3]}: switching on | {self.dimming = }",
                 level=logging.DEBUG,
             )
-            await self.lights_on(outside_change=outside_change)
+            await self.lights_on()
         else:
             refresh = ""
             if event != "motion_detected":
@@ -636,8 +634,8 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 level=logging.DEBUG,
             )
 
-        if event != "motion_detected":
-            await self.refresh_timer(outside_change=outside_change)
+        if event != "motion_state_changed_detection":
+            await self.refresh_timer()
 
     async def outside_change_detected(
         self, entity: str, attribute: str, old: str, new: str, kwargs: dict[str, Any]
@@ -663,9 +661,8 @@ class AutoMoLi(hass.Hass):  # type: ignore
             level=logging.DEBUG,
         )
 
-        # calling motion event handler
-        data: dict[str, Any] = {"entity_id": entity, "new": new, "old": old}
-        await self.motion_event("outside_change_detected", data, kwargs)
+        # setting timers
+        await self.refresh_timer(outside_change=True)
 
     def has_min_ad_version(self, required_version: str) -> bool:
         required_version = required_version if required_version else "4.0.7"
@@ -885,14 +882,12 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 await self.call_service("homeassistant/turn_off", entity_id=light)
             self.run_in_thread(self.turned_off, thread=self.notify_thread)
 
-    async def lights_on(
-        self, force: bool = False, outside_change: bool = False
-    ) -> None:
+    async def lights_on(self, force: bool = False) -> None:
         """Turn on the lights."""
 
         self.lg(
             f"{stack()[0][3]}: {self.thresholds.get(EntityType.ILLUMINANCE.idx) = }"
-            f" | {self.dimming = } | {force = } | {bool(force or self.dimming) = } | {outside_change = }",
+            f" | {self.dimming = } | {force = } | {bool(force or self.dimming) = }",
             level=logging.DEBUG,
         )
 
@@ -951,7 +946,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
                         group_name=await self.friendly_name(entity),  # type:ignore
                         scene_name=light_setting,  # type:ignore
                     )
-                    if not outside_change:
+                    if self.only_own_events:
                         self._switched_on_by_automoli.add(entity)
                     continue
 
@@ -960,7 +955,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 await self.call_service(
                     "homeassistant/turn_on", entity_id=item  # type:ignore
                 )  # type:ignore
-                if not outside_change:
+                if self.only_own_events:
                     self._switched_on_by_automoli.add(item)
 
             self.lg(
@@ -1002,7 +997,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
                             f" | delay: {hl(natural_time(int(self.active['delay'])))}",
                             icon=ON_ICON,
                         )
-                    if not outside_change:
+                    if self.only_own_events:
                         self._switched_on_by_automoli.add(entity)
 
         else:
