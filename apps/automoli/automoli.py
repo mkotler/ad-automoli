@@ -727,7 +727,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 handle = await self.run_in(self.dim_lights, (dim_in_sec))
 
             else:
-                handle = await self.run_in(self.lights_off, delay)
+                handle = await self.run_in(self.lights_off, delay, timeDelay=delay)
 
             self.room.handles_automoli.add(handle)
 
@@ -1053,7 +1053,9 @@ class AutoMoLi(hass.Hass):  # type: ignore
                     self._switched_on_by_automoli.remove(entity)
                 at_least_one_turned_off = True
         if at_least_one_turned_off:
-            self.run_in_thread(self.turned_off, thread=self.notify_thread)
+            self.run_in_thread(
+                self.turned_off, thread=self.notify_thread, timeDelay=_.get("timeDelay")
+            )
 
         # experimental | reset for xiaomi "super motion" sensors | idea from @wernerhp
         # app: https://github.com/wernerhp/appdaemon_aqara_motion_sensors
@@ -1072,7 +1074,9 @@ class AutoMoLi(hass.Hass):  # type: ignore
         # cancel scheduled callbacks
         await self.clear_handles()
 
-        delay = self.active["delay"] if _.get("delay") is None else _.get("delay")
+        delay = (
+            self.active["delay"] if _.get("timeDelay") is None else _.get("timeDelay")
+        )
 
         self.lg(
             f"no motion in {hl(self.room.name.capitalize())} since "
