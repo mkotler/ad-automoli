@@ -246,7 +246,9 @@ class AutoMoLi(hass.Hass):  # type: ignore
         self.delay = int(self.args.pop("delay", DEFAULT_DELAY))
 
         # delay for events outside AutoMoLi, defaults to same as general delay
-        self.delay_outside_events = int(self.args.pop("delay_outside_events", self.delay))
+        self.delay_outside_events = int(
+            self.args.pop("delay_outside_events", self.delay)
+        )
 
         # directly switch to new daytime light settings
         self.transition_on_daytime_switch: bool = bool(
@@ -376,7 +378,9 @@ class AutoMoLi(hass.Hass):  # type: ignore
         # requirements check:
         # - lights must exist
         # - motion must exist or only using automoli to turn off lights manually turned on after delay
-        if not self.lights or not(self.sensors[EntityType.MOTION.idx] or self.only_own_events == False) :
+        if not self.lights or not (
+            self.sensors[EntityType.MOTION.idx] or self.only_own_events == False
+        ):
             self.lg("")
             self.lg(
                 f"{hl('No lights/sensors')} given and none found with name: "
@@ -597,7 +601,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
     ) -> None:
         """Main handler for motion events."""
 
-        outside_change = (event == "outside_change_detected")
+        outside_change = event == "outside_change_detected"
 
         self.lg(
             f"{stack()[0][3]}: received '{hl(event)}' event from "
@@ -634,6 +638,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
 
         if event != "motion_detected":
             await self.refresh_timer(outside_change=outside_change)
+
     async def outside_change_detected(
         self, entity: str, attribute: str, old: str, new: str, kwargs: dict[str, Any]
     ) -> None:
@@ -688,7 +693,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
 
         self.lg(f"{stack()[0][3]}: cancelled scheduled callbacks", level=logging.DEBUG)
 
-    async def refresh_timer(self, outside_change = False) -> None:
+    async def refresh_timer(self, outside_change=False) -> None:
         """refresh delay timer."""
 
         fnn = f"{stack()[0][3]}:"
@@ -747,7 +752,6 @@ class AutoMoLi(hass.Hass):  # type: ignore
             ) and state in self.disable_switch_states:
                 self.lg(f"{APP_NAME} is disabled by {entity} with {state = }")
                 return True
-
         return False
 
     async def is_blocked(self) -> bool:
@@ -881,7 +885,9 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 await self.call_service("homeassistant/turn_off", entity_id=light)
             self.run_in_thread(self.turned_off, thread=self.notify_thread)
 
-    async def lights_on(self, force: bool = False, outside_change: bool = False) -> None:
+    async def lights_on(
+        self, force: bool = False, outside_change: bool = False
+    ) -> None:
         """Turn on the lights."""
 
         self.lg(
@@ -945,7 +951,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
                         group_name=await self.friendly_name(entity),  # type:ignore
                         scene_name=light_setting,  # type:ignore
                     )
-                    if not outside_change: 
+                    if not outside_change:
                         self._switched_on_by_automoli.add(entity)
                     continue
 
@@ -996,7 +1002,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
                             f" | delay: {hl(natural_time(int(self.active['delay'])))}",
                             icon=ON_ICON,
                         )
-                    if self.only_own_events:
+                    if not outside_change:
                         self._switched_on_by_automoli.add(entity)
 
         else:
@@ -1066,7 +1072,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
         # cancel scheduled callbacks
         await self.clear_handles()
 
-        delay = self.active['delay'] if _.get("delay") is None else _.get("delay")
+        delay = self.active["delay"] if _.get("delay") is None else _.get("delay")
 
         self.lg(
             f"no motion in {hl(self.room.name.capitalize())} since "
