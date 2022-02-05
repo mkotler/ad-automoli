@@ -641,7 +641,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
         self, entity: str, attribute: str, old: str, new: str, kwargs: dict[str, Any]
     ) -> None:
         """wrapper for when listening to outside light changes. on `state_changed` callback
-        of a light  setup a timer by calling `refresh_timer`
+        of a light setup a timer by calling `refresh_timer`
         """
         # ensure the change wasn't because of automoli
         if entity in self._switched_on_by_automoli:
