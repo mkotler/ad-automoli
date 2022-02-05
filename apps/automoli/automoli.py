@@ -640,8 +640,8 @@ class AutoMoLi(hass.Hass):  # type: ignore
     async def outside_change_detected(
         self, entity: str, attribute: str, old: str, new: str, kwargs: dict[str, Any]
     ) -> None:
-        """wrapper for when listening to outside light changes. maps the `state_changed` callback
-        of a light state changing to "on" to the standard motion `event` callback`
+        """wrapper for when listening to outside light changes. on `state_changed` callback
+        of a light  setup a timer by calling `refresh_timer`
         """
         # ensure the change wasn't because of automoli
         if entity in self._switched_on_by_automoli:
@@ -749,6 +749,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
             ) and state in self.disable_switch_states:
                 self.lg(f"{APP_NAME} is disabled by {entity} with {state = }")
                 return True
+
         return False
 
     async def is_blocked(self) -> bool:
