@@ -626,7 +626,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
             await self.lights_on()
         else:
             refresh = ""
-            if event != "motion_detected":
+            if event != "motion_state_changed_detection":
                 refresh = " → refreshing timer"
             self.lg(
                 f"{stack()[0][3]}: lights in {self.room.name.capitalize()} already on {refresh}"
