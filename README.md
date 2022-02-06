@@ -135,7 +135,7 @@ key | optional | type | default | description
 -- | -- | -- | -- | --
 `module` | False | string | automoli | The module name of the app.
 `class` | False | string | AutoMoLi | The name of the Class.
-`room` | False | string | | The "room" used to find matching sensors/light
+`room` | True | string | app name | The "room" used to find matching sensors/lights. If blank then it will use the top level name in the configuration file.
 `disable_switch_entities` | True | list/string | | One or more Home Assistant Entities as switch for AutoMoLi. If the state of **any** entity is *off*, AutoMoLi is *deactivated*. (Use an *input_boolean* for example)
 `only_own_events` | True | bool | None | Track if automoli switched this light on. If not, automoli will not switch the light off. (see below)
 `disable_switch_states` | True | list/string | ["off"] | Custom states for `disable_switch_entities`. If the state of **any** entity is *in this list*, AutoMoLi is *deactivated*. Can be used to disable with `media_players` in `playing` state for example.
@@ -154,6 +154,8 @@ key | optional | type | default | description
 `motion_state_on` | True | integer | | If using motion sensors which don't send events if already activated, like Xiaomi do with the Xiaomi Gateway (Aqara) integration, add this to your config with "on". This will listen to state changes instead
 `motion_state_off` | True | integer | | If using motion sensors which don't send events if already activated, like Xiaomi do with the Xiaomi Gateway (Aqara) integration, add this to your config with "off". This will listen to the state changes instead
 `debug_log` | True | bool | false | Activate debug logging (for this room)
+
+Note: If you set configuration options under an app named "default" then those will become the defaults across all rooms (but can still be overridden within a specific room).
 
 ### daytimes
 
