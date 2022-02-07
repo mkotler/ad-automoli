@@ -504,6 +504,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 "active_daytime": self.active_daytime,
                 "daytimes": daytimes,
                 "lights": self.lights,
+                "lights_off": self.lights_off_only,
                 "dim": self.dim,
                 "sensors": self.sensors,
                 "disable_hue_groups": self.disable_hue_groups,
