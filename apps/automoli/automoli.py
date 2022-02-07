@@ -205,10 +205,13 @@ class AutoMoLi(hass.Hass):  # type: ignore
         default: Any,
     ) -> Any:
         """Get configuration options from the current app if they exist but if not fall back
-        to any options defined in an app named 'default' or worst case to a default value passed in """
+        to any options defined in an app named 'default' or worst case to a default value passed in"""
         if name in self.args:
             return self.args.pop(name)
-        elif CONFIG_APPNAME in self.app_config and name in self.app_config[CONFIG_APPNAME]:
+        elif (
+            CONFIG_APPNAME in self.app_config
+            and name in self.app_config[CONFIG_APPNAME]
+        ):
             return self.app_config[CONFIG_APPNAME][name]
         else:
             return default
