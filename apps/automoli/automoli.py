@@ -377,9 +377,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
 
         # define light entities that are only switched off by automoli,
         # this does not currently work if dimming is True
-        self.lights_off_only: set[str] = self.listr(
-            self.getarg("lights_off", set())
-        )
+        self.lights_off_only: set[str] = self.listr(self.getarg("lights_off", set()))
         if self.dimming and (len(self.lights_off_only) > 0):
             self.lg("Warning: 'lights_off' only works if dimming is False")
 
