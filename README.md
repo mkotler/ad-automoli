@@ -145,7 +145,8 @@ key | optional | type | default | description
 ~~`motion_event`~~ | ~~True~~ | ~~string~~ | | **replaced by `motion_state_on/off`**
 `daytimes` | True | list | *see code* | Different daytimes with light settings (see below)
 `transition_on_daytime_switch` | True | bool | False | directly activate a daytime on its start time (instead to just set it as active daytime used if lights are switched from off to on)
-`lights` | True | list/string | *auto detect* | Light entities
+`lights` | True | list/string | *auto detect* | Light entities that are both turned on and off by automoli
+`lights_off` | True | list/string |  | Light entities that are only turned off by automoli after the delay but not turned on
 `motion` | True | list/string | *auto detect* | Motion sensor entities
 `illuminance` | True | list/string |  | Illuminance sensor entities
 `illuminance_threshold` | True | integer |  | If illuminance is *above* this value, lights will *not switched on*

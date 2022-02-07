@@ -375,6 +375,12 @@ class AutoMoLi(hass.Hass):  # type: ignore
                     )
                 )
 
+        # define light entities that are only switched off by automoli,
+        # this does not currently work if dimming is True
+        self.lights_off_only: set[str] = self.getarg("lights_off", set())
+        if self.dimming and (len(self.lights_off_only) > 0):
+            self.lg("Warning: 'lights_off' only works if dimming is False")
+
         # sensors
         self.sensors: dict[str, Any] = {}
 
@@ -1052,7 +1058,11 @@ class AutoMoLi(hass.Hass):  # type: ignore
         )
 
         # if any([await self.get_state(entity) == "on" for entity in self.lights]):
-        if all([await self.get_state(entity) == "off" for entity in self.lights]):
+        if all(
+            [await self.get_state(entity) == "off" for entity in self.lights]
+        ) and all(
+            [await self.get_state(entity) == "off" for entity in self.lights_off_only]
+        ):
             return
 
         at_least_one_turned_off = False
@@ -1071,6 +1081,11 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 if entity in self._switched_on_by_automoli:
                     self._switched_on_by_automoli.remove(entity)
                 at_least_one_turned_off = True
+        for entity in self.lights_off_only:
+            await self.call_service(
+                "homeassistant/turn_off", entity_id=entity  # type:ignore
+            )  # type:ignore
+            at_least_one_turned_off = True
         if at_least_one_turned_off:
             self.run_in_thread(
                 self.turned_off, thread=self.notify_thread, timeDelay=_.get("timeDelay")
