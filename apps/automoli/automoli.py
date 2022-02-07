@@ -1181,7 +1181,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
 
             dt_start: time
             try:
-                starttime = daytime.get("starttime")
+                starttime = str(daytime.get("starttime"))
                 if starttime.count(":") == 1:
                     starttime += ":00"
                 dt_start = (await self.parse_time(starttime, aware=True)).replace(
