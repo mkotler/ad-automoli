@@ -831,8 +831,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
             if (
                 state := await self.get_state(entity, copy=False)
             ) and state in self.disable_switch_states:
-                self.lg(f"{APP_NAME} is currently disabled by {entity} with {state = }")
-                await self.refresh_timer()
+                self.lg(f"{APP_NAME} is disabled by {entity} with {state = }")
                 return True
 
         return False
