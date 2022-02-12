@@ -150,12 +150,13 @@ key | optional | type | default | description
 `lights` | True | list/string | *auto detect* | Light entities that are both turned on and off by automoli
 `lights_off` | True | list/string |  | Light entities that are only turned off by automoli after the delay but not turned on
 `motion` | True | list/string | *auto detect* | Motion sensor entities
+`motion_state_on` | True | integer | | If using motion sensors which don't send events if already activated, like Xiaomi do with the Xiaomi Gateway (Aqara) integration, add this to your config with "on". This will listen to state changes instead
+`motion_state_off` | True | integer | | If using motion sensors which don't send events if already activated, like Xiaomi do with the Xiaomi Gateway (Aqara) integration, add this to your config with "off". This will listen to the state changes instead
 `illuminance` | True | list/string |  | Illuminance sensor entities
 `illuminance_threshold` | True | integer |  | If illuminance is *above* this value, lights will *not switched on*
 `humidity` | True | list/string |  | Humidity sensor entities
 `humidity_threshold` | True | integer |  | If humidity is *above* this value, lights will *not switched off*
-`motion_state_on` | True | integer | | If using motion sensors which don't send events if already activated, like Xiaomi do with the Xiaomi Gateway (Aqara) integration, add this to your config with "on". This will listen to state changes instead
-`motion_state_off` | True | integer | | If using motion sensors which don't send events if already activated, like Xiaomi do with the Xiaomi Gateway (Aqara) integration, add this to your config with "off". This will listen to the state changes instead
+`shorten_delay` | True | list/string | | One ore more Home Assistant Entities that when a state chnage to "on" happens will shorten the delay to 60 seconds (e.g., opening a door would reduce the timer to 60 seconds for turning off the room's  lights )
 `debug_log` | True | bool | false | Activate debug logging (for this room)
 
 Note: If you set configuration options under an app named "default" then those will become the defaults across all rooms (but can still be overridden within a specific room).

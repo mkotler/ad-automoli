@@ -42,6 +42,7 @@ DEFAULT_DAYTIMES: list[dict[str, str | int]] = [
     dict(starttime="22:30", name="night", light=0),
 ]
 DEFAULT_LOGLEVEL = "INFO"
+DEFAULT_SHORT_DELAY = 60
 
 CONFIG_APPNAME = "default"
 EVENT_MOTION_XIAOMI = "xiaomi_aqara.motion"
@@ -338,6 +339,9 @@ class AutoMoLi(hass.Hass):  # type: ignore
             self.getarg("block_switch_states", set(["off"]))
         )
 
+        # sensors that will shorten current active delay
+        self.shorten_delay: set[str] = self.listr(self.getarg("shorten_delay", set()))
+
         # store if an entity has been switched on by automoli
         # None: automoli will turn off lights after motion detected
         #       (regardless of whether automoli turned light on originally;
@@ -371,7 +375,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
         self.handle_turned_off: str | None = None
 
         # define light entities switched by automoli
-        self.lights: set[str] = self.getarg("lights", set())
+        self.lights: set[str] = self.listr(self.getarg("lights", set()))
         if not self.lights:
             room_light_group = f"light.{self.room_name}"
             if await self.entity_exists(room_light_group):
@@ -504,6 +508,17 @@ class AutoMoLi(hass.Hass):  # type: ignore
                     )
                 )
 
+        # set up state listener for entities that will shorten the current delay
+        # on/off-only sensors without events on every motion
+        for entity in self.shorten_delay:
+            listener.add(
+                self.listen_state(
+                    self.update_delay,
+                    entity_id=entity,
+                    new=self.states["motion_on"],
+                )
+            )
+
         self.args.update(
             {
                 "room": self.room_name.capitalize(),
@@ -515,6 +530,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 "lights_off": self.lights_off_only,
                 "dim": self.dim,
                 "sensors": self.sensors,
+                "shorten_delay": self.shorten_delay,
                 "disable_hue_groups": self.disable_hue_groups,
                 "only_own_events": self.only_own_events,
                 "loglevel": self.loglevel,
@@ -573,7 +589,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 if self.transition_on_daytime_switch and any(
                     [await self.get_state(light) == "on" for light in self.lights]
                 ):
-                    await self.lights_on(force=True)
+                    await self.lights_on(source="daytime change", force=True)
                     action_done = "activated"
 
                 self.lg(
@@ -642,9 +658,10 @@ class AutoMoLi(hass.Hass):  # type: ignore
     ) -> None:
         """Main handler for motion events."""
 
+        motion_trigger = data["entity_id"].replace(EntityType.MOTION.prefix, "")
         self.lg(
             f"{stack()[0][3]}: received '{hl(event)}' event from "
-            f"'{data['entity_id'].replace(EntityType.MOTION.prefix, '')}' | {self.dimming = }",
+            f"'{motion_trigger}' | {self.dimming = }",
             level=logging.DEBUG,
         )
 
@@ -664,7 +681,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 f"{stack()[0][3]}: switching on | {self.dimming = }",
                 level=logging.DEBUG,
             )
-            await self.lights_on()
+            await self.lights_on(source=motion_trigger)
         else:
             refresh = ""
             if event != "motion_state_changed_detection":
@@ -703,7 +720,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
         )
 
         # setting timers
-        await self.refresh_timer(outside_change=True)
+        await self.refresh_timer(refresh_type="outside_change")
 
     def has_min_ad_version(self, required_version: str) -> bool:
         required_version = required_version if required_version else "4.0.7"
@@ -731,7 +748,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
 
         self.lg(f"{stack()[0][3]}: cancelled scheduled callbacks", level=logging.DEBUG)
 
-    async def refresh_timer(self, outside_change=False) -> None:
+    async def refresh_timer(self, refresh_type: str = "normal") -> None:
         """refresh delay timer."""
 
         fnn = f"{stack()[0][3]}:"
@@ -745,8 +762,10 @@ class AutoMoLi(hass.Hass):  # type: ignore
         await self.clear_handles()
 
         # if an external event (e.g., switch turned on manually) was detected use delay_outside_events
-        if outside_change:
+        if refresh_type == "outside_change":
             delay = self.delay_outside_events
+        elif refresh_type == "shorten_delay":
+            delay = DEFAULT_SHORT_DELAY
         else:
             delay = self.active.get("delay")
 
@@ -754,7 +773,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
         if delay:
 
             self.lg(
-                f"{fnn} {self.active = } | {self.delay_outside_events = } | {outside_change = } | {delay = } | {self.dim = }",
+                f"{fnn} {self.active = } | {self.delay_outside_events = } | {refresh_type = } | {delay = } | {self.dim = }",
                 level=logging.DEBUG,
             )
 
@@ -782,6 +801,12 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 level=logging.DEBUG,
             )
 
+    async def update_delay(
+        self, entity: str, attribute: str, old: str, new: str, _: dict[str, Any]
+    ) -> None:
+        """shorten the time delay for turning off lights"""
+        await self.refresh_timer(refresh_type="shorten_delay")
+
     async def night_mode_active(self) -> bool:
         return bool(
             self.night_mode and await self.get_state(self.night_mode["entity"]) == "on"
@@ -793,7 +818,8 @@ class AutoMoLi(hass.Hass):  # type: ignore
             if (
                 state := await self.get_state(entity, copy=False)
             ) and state in self.disable_switch_states:
-                self.lg(f"{APP_NAME} is disabled by {entity} with {state = }")
+                self.lg(f"{APP_NAME} is currently disabled by {entity} with {state = }")
+                await self.refresh_timer()
                 return True
 
         return False
@@ -933,7 +959,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 )
             )
 
-        self.lg(message, icon=OFF_ICON, level=logging.DEBUG)
+        self.lg(message, icon=OFF_ICON)
 
     async def turn_off_lights(self, kwargs: dict[str, Any]) -> None:
         if lights := kwargs.get("lights"):
@@ -942,7 +968,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 await self.call_service("homeassistant/turn_off", entity_id=light)
             self.run_in_thread(self.turned_off, thread=self.notify_thread)
 
-    async def lights_on(self, force: bool = False) -> None:
+    async def lights_on(self, source: str = "<unknown>", force: bool = False) -> None:
         """Turn on the lights."""
 
         self.lg(
@@ -1017,7 +1043,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 self._switched_on_by_automoli.add(item)
 
             self.lg(
-                f"{hl(self.room.name.capitalize())} turned {hl('on')} → "
+                f"{hl(self.room.name.capitalize())} turned {hl('on')} by {hl(source)} → "
                 f"{'hue' if self.active['is_hue_group'] else 'ha'} scene: "
                 f"{hl(light_setting.replace('scene.', ''))}"
                 f" | delay: {hl(natural_time(int(self.active['delay'])))}",
@@ -1050,7 +1076,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
                         )
 
                     self.lg(
-                        f"{hl(self.room.name.capitalize())} turned {hl('on')} → "
+                        f"{hl(self.room.name.capitalize())} turned {hl('on')} by {hl(source)} → "
                         f"brightness: {hl(light_setting)}%"
                         f" | delay: {hl(natural_time(int(self.active['delay'])))}",
                         icon=ON_ICON,
@@ -1140,7 +1166,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
         )
 
         self.lg(
-            f"no motion in {hl(self.room.name.capitalize())} since "
+            f"no motion in {hl(self.room.name.capitalize())} for "
             f"{hl(natural_time(int(delay)))} → turned {hl('off')}",
             icon=OFF_ICON,
         )
