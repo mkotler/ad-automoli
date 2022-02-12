@@ -331,12 +331,18 @@ class AutoMoLi(hass.Hass):  # type: ignore
             self.getarg("disable_switch_states", set(["off"]))
         )
 
-        # additional sensors that will block turning off lights
-        self.block_switch_entities: set[str] = self.listr(
-            self.getarg("block_switch_entities", set())
+        # additional sensors that will block turning on or off lights
+        self.block_on_switch_entities: set[str] = self.listr(
+            self.getarg("block_on_switch_entities", set())
         )
-        self.block_switch_states: set[str] = self.listr(
-            self.getarg("block_switch_states", set(["off"]))
+        self.block_on_switch_states: set[str] = self.listr(
+            self.getarg("block_on_switch_states", set(["off"]))
+        )
+        self.block_off_switch_entities: set[str] = self.listr(
+            self.getarg("block_off_switch_entities", set())
+        )
+        self.block_off_switch_states: set[str] = self.listr(
+            self.getarg("block_off_switch_states", set(["off"]))
         )
 
         # sensors that will shorten current active delay
@@ -549,10 +555,17 @@ class AutoMoLi(hass.Hass):  # type: ignore
             self.args.update({"disable_switch_entities": self.disable_switch_entities})
             self.args.update({"disable_switch_states": self.disable_switch_states})
 
-        # add block entity to config if given
-        if self.block_switch_entities:
-            self.args.update({"block_switch_entities": self.block_switch_entities})
-            self.args.update({"block_switch_states": self.block_switch_states})
+        # add block on and off entities to config if given
+        if self.block_on_switch_entities:
+            self.args.update(
+                {"block_on_switch_entities": self.block_on_switch_entities}
+            )
+            self.args.update({"block_on_switch_states": self.block_on_switch_states})
+        if self.block_off_switch_entities:
+            self.args.update(
+                {"block_off_switch_entities": self.block_off_switch_entities}
+            )
+            self.args.update({"block_off_switch_states": self.block_off_switch_states})
 
         # show parsed config
         self.show_info(self.args)
@@ -667,10 +680,10 @@ class AutoMoLi(hass.Hass):  # type: ignore
 
         # check if automoli is disabled via home assistant entity
         self.lg(
-            f"{stack()[0][3]}: {await self.is_disabled() = } | {self.dimming = }",
+            f"{stack()[0][3]}: {await self.is_disabled() = } | {await self.is_blocked(onoff='on') = } | {self.dimming = }",
             level=logging.DEBUG,
         )
-        if await self.is_disabled():
+        if await self.is_disabled() or await self.is_blocked(onoff="on"):
             return
 
         # turn on the lights if not all are already on
@@ -824,7 +837,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
 
         return False
 
-    async def is_blocked(self) -> bool:
+    async def is_blocked(self, onoff: str = None) -> bool:
 
         # the "shower case"
         if humidity_threshold := self.thresholds.get("humidity"):
@@ -859,18 +872,29 @@ class AutoMoLi(hass.Hass):  # type: ignore
                     return True
 
         # other blocked entitites
-        for entity in self.block_switch_entities:
-            if (
-                state := await self.get_state(entity, copy=False)
-            ) and state in self.block_switch_states:
-                await self.refresh_timer()
-                self.lg(
-                    f"no motion in {hl(self.room.name.capitalize())} since "
-                    f"{hl(natural_time(int(self.active['delay'])))} → "
-                    f"but blocked by {entity} with {state = }"
-                )
-                return True
-
+        if onoff == "on":
+            for entity in self.block_on_switch_entities:
+                if (
+                    state := await self.get_state(entity, copy=False)
+                ) and state in self.block_on_switch_states:
+                    await self.refresh_timer()
+                    self.lg(
+                        f"motion detected in {hl(self.room.name.capitalize())} "
+                        f"but blocked by {entity} with {state = }"
+                    )
+                    return True
+        elif onoff == "off":
+            for entity in self.block_off_switch_entities:
+                if (
+                    state := await self.get_state(entity, copy=False)
+                ) and state in self.block_off_switch_states:
+                    await self.refresh_timer()
+                    self.lg(
+                        f"no motion in {hl(self.room.name.capitalize())} since "
+                        f"{hl(natural_time(int(self.active['delay'])))} → "
+                        f"but blocked by {entity} with {state = }"
+                    )
+                    return True
         return False
 
     async def dim_lights(self, _: Any) -> None:
@@ -878,12 +902,12 @@ class AutoMoLi(hass.Hass):  # type: ignore
         message: str = ""
 
         self.lg(
-            f"{stack()[0][3]}: {await self.is_disabled() = } | {await self.is_blocked() = }",
+            f"{stack()[0][3]}: {await self.is_disabled() = } | {await self.is_blocked(onoff='off') = }",
             level=logging.DEBUG,
         )
 
         # check if automoli is disabled via home assistant entity or blockers like the "shower case"
-        if (await self.is_disabled()) or (await self.is_blocked()):
+        if (await self.is_disabled()) or (await self.is_blocked(onoff="off")):
             return
 
         if not any([await self.get_state(light) == "on" for light in self.lights]):
@@ -1097,7 +1121,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
         )
 
         # check if automoli is disabled via home assistant entity or blockers like the "shower case"
-        if (await self.is_disabled()) or (await self.is_blocked()):
+        if (await self.is_disabled()) or (await self.is_blocked(onoff="off")):
             return
 
         # cancel scheduled callbacks
