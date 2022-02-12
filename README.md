@@ -158,7 +158,8 @@ key | optional | type | default | description
 `illuminance_threshold` | True | integer |  | If illuminance is *above* this value, lights will *not switched on*
 `humidity` | True | list/string |  | Humidity sensor entities
 `humidity_threshold` | True | integer |  | If humidity is *above* this value, lights will *not switched off*
-`shorten_delay` | True | list/string | | One ore more Home Assistant Entities that when a state chnage to "on" happens will shorten the delay to 60 seconds (e.g., opening a door would reduce the timer to 60 seconds for turning off the room's  lights )
+`shorten_delay` | True | list/string |  | One ore more Home Assistant Entities that when a state chnage to "on" happens will shorten the delay to 60 seconds (e.g., opening a door would reduce the timer to 60 seconds for turning off the room's  lights )
+`warning_flash` | True | boolean | false | Flash the lights (off and then on) 60 seconds before AutoMoLi will turn them off 
 `debug_log` | True | bool | false | Activate debug logging (for this room)
 
 Note: If you set configuration options under an app named "default" then those will become the defaults across all rooms (but can still be overridden within a specific room).

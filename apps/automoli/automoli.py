@@ -43,6 +43,7 @@ DEFAULT_DAYTIMES: list[dict[str, str | int]] = [
 ]
 DEFAULT_LOGLEVEL = "INFO"
 DEFAULT_SHORT_DELAY = 60
+DEFAULT_WARNING_DELAY = 60
 
 CONFIG_APPNAME = "default"
 EVENT_MOTION_XIAOMI = "xiaomi_aqara.motion"
@@ -360,6 +361,9 @@ class AutoMoLi(hass.Hass):  # type: ignore
 
         self.disable_hue_groups: bool = self.getarg("disable_hue_groups", False)
 
+        self.warning_flash: bool = self.getarg("warning_flash", False)
+        self._warning_lights: set[str] = set()
+
         # eol of the old option name
         if "disable_switch_entity" in self.args:
             icon_alert = "⚠️"
@@ -538,6 +542,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 "sensors": self.sensors,
                 "shorten_delay": self.shorten_delay,
                 "disable_hue_groups": self.disable_hue_groups,
+                "warning_flash": self.warning_flash,
                 "only_own_events": self.only_own_events,
                 "loglevel": self.loglevel,
             }
@@ -808,6 +813,13 @@ class AutoMoLi(hass.Hass):  # type: ignore
                     f"handles: {self.room.handles_automoli = }",
                     level=logging.DEBUG,
                 )
+
+            if self.warning_flash and refresh_type != "shorten_delay":
+                handle = await self.run_in(
+                    self.warning_flash_off, (int(delay) - DEFAULT_WARNING_DELAY)
+                )
+                self.room.handles_automoli.add(handle)
+
         else:
             self.lg(
                 "No delay was set or delay = 0, lights will not be switched off by AutoMoLi",
@@ -1193,6 +1205,35 @@ class AutoMoLi(hass.Hass):  # type: ignore
             f"{hl(natural_time(int(delay)))} → turned {hl('off')}",
             icon=OFF_ICON,
         )
+
+    async def warning_flash_off(self, _: dict[str, Any] | None = None) -> None:
+        self.lg(
+            f"lights will be turned off in {hl(self.room.name.capitalize())} in "
+            f"{DEFAULT_WARNING_DELAY} seconds → flashing warning",
+            level=logging.DEBUG,
+        )
+
+        # turn off lights that are on and save those in self._warning_lights to turn back on
+        at_least_one_turned_off = False
+        for entity in self.lights:
+            if await self.get_state(entity) == "on":
+                self._warning_lights.add(entity)
+                await self.call_service(
+                    "homeassistant/turn_off", entity_id=entity  # type:ignore
+                )  # type:ignore
+                at_least_one_turned_off = True
+
+        # turn lights on again in 1s
+        if at_least_one_turned_off:
+            self.run_in(self.warning_flash_on, 1)
+
+    async def warning_flash_on(self, _: dict[str, Any] | None = None) -> None:
+        # turn lights back on after 1s delay
+        for entity in self._warning_lights:
+            await self.call_service(
+                "homeassistant/turn_on", entity_id=entity  # type:ignore
+            )  # type:ignore
+        self._warning_lights.clear()
 
     async def find_sensors(
         self, keyword: str, room_name: str, states: dict[str, dict[str, Any]]
