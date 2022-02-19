@@ -629,7 +629,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
         of a motion sensors changing to "cleared" is received
         """
 
-        # starte the timer if motion is cleared
+        # start the timer if motion is cleared
         self.lg(
             f"{stack()[0][3]}: {entity} changed {attribute} from {old} to {new}",
             level=logging.DEBUG,
@@ -729,9 +729,12 @@ class AutoMoLi(hass.Hass):  # type: ignore
         if entity in self._switched_on_by_automoli:
             return
 
+        #self.lg(
+        #    f"{stack()[0][3]}: {entity} changed {attribute} from {old} to {new}",
+        #    level=logging.DEBUG,
+        #)
         self.lg(
-            f"{stack()[0][3]}: {entity} changed {attribute} from {old} to {new}",
-            level=logging.DEBUG,
+            f"{hl(entity)} was turned '{new}' manually"
         )
 
         # cancel scheduled callbacks
@@ -897,7 +900,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
                     await self.refresh_timer()
                     self.lg(
                         f"motion detected in {hl(self.room.name.capitalize())} "
-                        f"but blocked by {entity} with {state = }"
+                        f"but blocked by {entity} with state '{state}'"
                     )
                     return True
         elif onoff == "off":
@@ -909,7 +912,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
                     self.lg(
                         f"no motion in {hl(self.room.name.capitalize())} since "
                         f"{hl(natural_time(int(self.active['delay'])))} → "
-                        f"but blocked by {entity} with {state = }"
+                        f"but blocked by {entity} with state '{state}'"
                     )
                     return True
         return False
@@ -1094,6 +1097,9 @@ class AutoMoLi(hass.Hass):  # type: ignore
         elif isinstance(light_setting, int):
 
             if light_setting == 0:
+                if all(
+                    [await self.get_state(entity) == "off" for entity in self.lights]):
+                    self.lg("no lights turned on because current 'daytime' light setting is 0")
                 await self.lights_off({})
 
             else:
