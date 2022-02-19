@@ -517,6 +517,9 @@ class AutoMoLi(hass.Hass):  # type: ignore
                         new="on",
                     )
                 )
+                # assume any lights that are currently on were switched on by AutoMoLi
+                if await self.get_state(light) == "on":
+                    self._switched_on_by_automoli.add(light)
 
         # set up state listener for entities that will shorten the current delay
         # on/off-only sensors without events on every motion
