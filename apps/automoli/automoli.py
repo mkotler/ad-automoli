@@ -729,13 +729,11 @@ class AutoMoLi(hass.Hass):  # type: ignore
         if entity in self._switched_on_by_automoli:
             return
 
-        #self.lg(
+        # self.lg(
         #    f"{stack()[0][3]}: {entity} changed {attribute} from {old} to {new}",
         #    level=logging.DEBUG,
-        #)
-        self.lg(
-            f"{hl(entity)} was turned '{new}' manually"
-        )
+        # )
+        self.lg(f"{hl(entity)} was turned '{new}' manually")
 
         # cancel scheduled callbacks
         await self.clear_handles()
@@ -1098,8 +1096,11 @@ class AutoMoLi(hass.Hass):  # type: ignore
 
             if light_setting == 0:
                 if all(
-                    [await self.get_state(entity) == "off" for entity in self.lights]):
-                    self.lg("no lights turned on because current 'daytime' light setting is 0")
+                    [await self.get_state(entity) == "off" for entity in self.lights]
+                ):
+                    self.lg(
+                        "no lights turned on because current 'daytime' light setting is 0"
+                    )
                 await self.lights_off({})
 
             else:
