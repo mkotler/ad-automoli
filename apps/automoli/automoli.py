@@ -635,9 +635,12 @@ class AutoMoLi(hass.Hass):  # type: ignore
             level=logging.DEBUG,
         )
 
+        # Handle case when motion sensor may be unknown or unavailable
+        states = {self.states["motion_off"], "unknown", "unavailable"}
+
         if all(
             [
-                await self.get_state(sensor) == self.states["motion_off"]
+                await self.get_state(sensor) in states
                 for sensor in self.sensors[EntityType.MOTION.idx]
             ]
         ):
