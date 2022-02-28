@@ -1220,6 +1220,11 @@ class AutoMoLi(hass.Hass):  # type: ignore
         )
 
     async def warning_flash_off(self, _: dict[str, Any] | None = None) -> None:
+        # check if automoli is disabled via home assistant entity or blockers like the "shower case"
+        # if so then don't do the warning flash
+        if (await self.is_disabled()) or (await self.is_blocked(onoff="off")):
+            return
+
         self.lg(
             f"lights will be turned off in {hl(self.room.name.capitalize())} in "
             f"{DEFAULT_WARNING_DELAY} seconds → flashing warning",
