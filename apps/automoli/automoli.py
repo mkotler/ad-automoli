@@ -401,12 +401,6 @@ class AutoMoLi(hass.Hass):  # type: ignore
                     )
                 )
 
-        # define light entities that are only switched off by automoli,
-        # this does not currently work if dimming is True
-        self.lights_off_only: set[str] = self.listr(self.getarg("lights_off", set()))
-        if self.dimming and (len(self.lights_off_only) > 0):
-            self.lg("Warning: 'lights_off' only works if dimming is False")
-
         # sensors
         self.sensors: dict[str, Any] = {}
 
@@ -545,7 +539,6 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 "active_daytime": self.active_daytime,
                 "daytimes": daytimes,
                 "lights": self.lights,
-                "lights_off": self.lights_off_only,
                 "dim": self.dim,
                 "sensors": self.sensors,
                 "shorten_delay": self.shorten_delay,
@@ -1197,11 +1190,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
         )
 
         # if any([await self.get_state(entity) == "on" for entity in self.lights]):
-        if all(
-            [await self.get_state(entity) == "off" for entity in self.lights]
-        ) and all(
-            [await self.get_state(entity) == "off" for entity in self.lights_off_only]
-        ):
+        if all([await self.get_state(entity) == "off" for entity in self.lights]):
             return
 
         at_least_one_turned_off = False

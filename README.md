@@ -150,7 +150,6 @@ key | optional | type | default | description
 `daytimes` | True | list | *see code* | Different daytimes with light settings (see below)
 `transition_on_daytime_switch` | True | bool | False | directly activate a daytime on its start time (instead to just set it as active daytime used if lights are switched from off to on)
 `lights` | True | list/string | *auto detect* | Light entities that are both turned on and off by automoli
-`lights_off` | True | list/string |  | Light entities that are only turned off by automoli after the delay but not turned on
 `motion` | True | list/string | *auto detect* | Motion sensor entities
 `motion_state_on` | True | integer | | If using motion sensors which don't send events if already activated, like Xiaomi do with the Xiaomi Gateway (Aqara) integration, add this to your config with "on". This will listen to state changes instead
 `motion_state_off` | True | integer | | If using motion sensors which don't send events if already activated, like Xiaomi do with the Xiaomi Gateway (Aqara) integration, add this to your config with "off". This will listen to the state changes instead
