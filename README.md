@@ -129,26 +129,15 @@ For the auto-discovery of your lights and sensors to work, AutoMoLi expects moti
 
 AutoMoLi will detect them automatically. Manually configured entities will take precedence.
 
-## Configuration Options
+## Basic Configuration Options
 
 key | optional | type | default | description
 -- | -- | -- | -- | --
 `module` | False | string | automoli | The module name of the app.
 `class` | False | string | AutoMoLi | The name of the Class.
 `room` | True | string | app name | The "room" used to find matching sensors/lights. If blank then it will use the top level name in the configuration file.
-`only_own_events` | True | bool | None | Track if automoli switched this light on. If not, automoli will not switch the light off. (see below)`disable_switch_entities` | True | list/string | | One or more Home Assistant Entities as switch for AutoMoLi. If the state of **any** entity is *off*, AutoMoLi is *deactivated*. (Use an *input_boolean* for example)
-`disable_switch_entities` | True | list/string | | One or more Home Assistant Entities as switch for AutoMoLi. If the state of **any** entity is *off*, AutoMoLi is *deactivated*. (Use an *input_boolean* for example)
-`disable_switch_states` | True | list/string | ["off"] | Custom states for `disable_switch_entities`. If the state of **any** entity is *in this list*, AutoMoLi is *deactivated*. Can be used to disable with `media_players` in `playing` state for example.
-`block_on_switch_entities` | True | list/string | | If the state of **any** entity is *off*, AutoMoLi will not turn *on* lights until the entity is no longer *off*. (Use an *input_boolean* for example)
-`block_on_switch_states` | True | list/string | ["off"] | Custom states for `block_on_switch_entities`. If the state of **any** entity is *in this list*, AutoMoLi is will not turn *on* lights until the entity is no longer in this list. Can be used to block turning on bedroom lights if someone is in bed, for example.
-`block_off_switch_entities` | True | list/string | | If the state of **any** entity is *off*, AutoMoLi will not turn *off* lights until the entity is no longer *off*. (Use an *input_boolean* for example)
-`block_off_switch_states` | True | list/string | ["off"] | Custom states for `block_off_switch_entities`. If the state of **any** entity is *in this list*, AutoMoLi will not turn *off* lights until the entity is no longer in this list. Can be used to block turning off lights if the bathroom door is closed for example.
-`disable_hue_groups` | False | boolean | | Disable the use of Hue Groups/Scenes
 `delay` | True | integer | 150 | Seconds without motion until lights will switched off. Can be disabled (lights stay always on) with `0`
-`delay_outside_events` | True | integer | same as delay | Seconds without motion until lights will switched off, if they were turned on by an event outside automoli (e.g., manually, via automation, etc.). Can be disabled (lights stay always on) with `0`
-~~`motion_event`~~ | ~~True~~ | ~~string~~ | | **replaced by `motion_state_on/off`**
 `daytimes` | True | list | *see code* | Different daytimes with light settings (see below)
-`transition_on_daytime_switch` | True | bool | False | directly activate a daytime on its start time (instead to just set it as active daytime used if lights are switched from off to on)
 `lights` | True | list/string | *auto detect* | Light entities that are both turned on and off by automoli
 `motion` | True | list/string | *auto detect* | Motion sensor entities
 `motion_state_on` | True | integer | | If using motion sensors which don't send events if already activated, like Xiaomi do with the Xiaomi Gateway (Aqara) integration, add this to your config with "on". This will listen to state changes instead
@@ -157,11 +146,6 @@ key | optional | type | default | description
 `illuminance_threshold` | True | integer |  | If illuminance is *above* this value, lights will *not switched on*
 `humidity` | True | list/string |  | Humidity sensor entities
 `humidity_threshold` | True | integer |  | If humidity is *above* this value, lights will *not switched off*
-`shorten_delay` | True | list/string |  | One ore more Home Assistant Entities that when a state chnage to "on" happens will shorten the delay to 60 seconds (e.g., opening a door would reduce the timer to 60 seconds for turning off the room's  lights )
-`warning_flash` | True | boolean | false | Flash the lights (off and then on) 60 seconds before AutoMoLi will turn them off 
-`debug_log` | True | bool | false | Activate debug logging (for this room)
-
-Note: If you set configuration options under an app named "default" then those will become the defaults across all rooms (but can still be overridden within a specific room).
 
 ### daytimes
 
@@ -173,6 +157,27 @@ key | optional | type | default | description
 `light` | False | integer/string | | Light setting (percent integer value (0-100) in or scene entity
 
 Note: If there is only one daytime, the light and delay settings will be applied for the entire day, regardless of the starttime.
+
+## Advanced Configuration Options
+
+key | optional | type | default | description
+-- | -- | -- | -- | --
+`dependencies` | True | string | None | If you set configuration options under an app named "default" then those will become the defaults across all rooms (but can still be overridden within a specific room). Specify `dependencies: default` so that any changes to the "default" app will be automatically picked up.
+`transition_on_daytime_switch` | True | bool | False | directly activate a daytime on its start time (instead to just set it as active daytime used if lights are switched from off to on)
+`only_own_events` | True | bool | None | Track if automoli switched this light on. If not, automoli will not switch the light off. (see below)
+`delay_outside_events` | True | integer | same as delay | Seconds without motion until lights will switched off, if they were turned on by an event outside automoli (e.g., manually, via automation, etc.). Can be disabled (lights stay always on) with `0`
+`disable_switch_entities` | True | list/string | | One or more Home Assistant Entities as switch for AutoMoLi. If the state of **any** entity is *off*, AutoMoLi is *deactivated*. (Use an *input_boolean* for example)
+`disable_switch_states` | True | list/string | ["off"] | Custom states for `disable_switch_entities`. If the state of **any** entity is *in this list*, AutoMoLi is *deactivated*. Can be used to disable with `media_players` in `playing` state for example.
+`block_on_switch_entities` | True | list/string | | If the state of **any** entity is *off*, AutoMoLi will not turn *on* lights until the entity is no longer *off*. (Use an *input_boolean* for example)
+`block_on_switch_states` | True | list/string | ["off"] | Custom states for `block_on_switch_entities`. If the state of **any** entity is *in this list*, AutoMoLi will not turn *on* lights until the entity is no longer in this list. Can be used to block turning on bedroom lights if someone is in bed, for example.
+`block_off_switch_entities` | True | list/string | | If the state of **any** entity is *off*, AutoMoLi will not turn *off* lights until the entity is no longer *off*. (Use an *input_boolean* for example)
+`block_off_switch_states` | True | list/string | ["off"] | Custom states for `block_off_switch_entities`. If the state of **any** entity is *in this list*, AutoMoLi will not turn *off* lights until the entity is no longer in this list. Can be used to block turning off lights if the bathroom door is closed for example.
+`disable_hue_groups` | False | boolean | | Disable the use of Hue Groups/Scenes
+`shorten_delay` | True | list/string |  | One ore more Home Assistant Entities that when a state chnage to "on" happens will shorten the delay to 60 seconds (e.g., opening a door would reduce the timer to 60 seconds for turning off the room's  lights )
+`warning_flash` | True | boolean | false | Flash the lights (off and then on) 60 seconds before AutoMoLi will turn them off
+`debug_log` | True | bool | false | Activate debug logging (for this room)
+`colorize_logging` | True | bool | True | Use ANSI colors in the log. On by default but can be turned off to remove escape codes for viewers that do not support coloring. 
+`track_room_stats` | True | boolean | false | Create sensors to show room statistics and print a daily summary in the log at midnight for how long lights were on that day. Even if this is false, firing the event "automoli_stats" will print a summary manually. 
 
 ### only_own_events
 
