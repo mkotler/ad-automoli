@@ -156,6 +156,8 @@ class AutoMoLi(hass.Hass):  # type: ignore
 
         if level >= self.loglevel:
             message = f"{f'{icon} ' if icon else ' '}{msg}"
+            if not self.colorize_logging:
+                message = message.replace("\033[1m", "").replace("\033[0m", "")
             _ = [self.log(message, *args, **kwargs) for _ in range(repeat)]
 
             if log_to_ha or self.log_to_ha:
@@ -165,7 +167,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 # "easier to ask for forgiveness than permission"
                 # https://stackoverflow.com/a/610923/13180763
                 try:
-                    ha_name = self.room.name.capitalize()
+                    ha_name = self.room.name.replace("_", " ").title()
                 except AttributeError:
                     ha_name = APP_NAME
                     self.lg(
@@ -238,6 +240,8 @@ class AutoMoLi(hass.Hass):  # type: ignore
         )
 
         self.log_to_ha = bool(self.getarg("log_to_ha", False))
+
+        self.colorize_logging = bool(self.getarg("colorize_logging", True))
 
         # notification thread (prevents doubled messages)
         self.notify_thread = random.randint(0, 9)  # nosec
@@ -514,6 +518,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
                     self.listen_state(
                         self.outside_change_detected,
                         entity_id=light,
+                        attribute="all",
                         new="on",
                     )
                 )
@@ -690,10 +695,13 @@ class AutoMoLi(hass.Hass):  # type: ignore
         )
 
         # check if automoli is disabled via home assistant entity
-        self.lg(
-            f"{stack()[0][3]}: {await self.is_disabled() = } | {await self.is_blocked(onoff='on') = } | {self.dimming = }",
-            level=logging.DEBUG,
-        )
+        # check logging level here first to avoid duplicate log entries when not debug logging
+        if logging.DEBUG >= self.loglevel:
+            self.lg(
+                f"{stack()[0][3]}: {await self.is_disabled() = } | {await self.is_blocked(onoff='on') = } | {self.dimming = }",
+                level=logging.DEBUG,
+            )
+
         if await self.is_disabled() or await self.is_blocked(onoff="on"):
             return
 
@@ -711,7 +719,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
             if event != "motion_state_changed_detection":
                 refresh = " → refreshing timer"
             self.lg(
-                f"{stack()[0][3]}: lights in {self.room.name.capitalize()} already on {refresh}"
+                f"{stack()[0][3]}: lights in {self.room.name.replace('_',' ').title()} already on {refresh}"
                 f" | {self.dimming = }",
                 level=logging.DEBUG,
             )
@@ -720,27 +728,52 @@ class AutoMoLi(hass.Hass):  # type: ignore
             await self.refresh_timer()
 
     async def outside_change_detected(
-        self, entity: str, attribute: str, old: str, new: str, kwargs: dict[str, Any]
+        self,
+        entity: str,
+        attribute: str,
+        old: str,
+        new: str | dict,
+        kwargs: dict[str, Any],
     ) -> None:
         """wrapper for when listening to outside light changes. on `state_changed` callback
         of a light setup a timer by calling `refresh_timer`
         """
+        state = new
+        # Check if got entire state object
+        if attribute == "all":
+            state = dict(new).get("state")
+            context_id = dict(dict(new).get("context")).get("id")
+
         # ensure the change wasn't because of automoli
         if entity in self._switched_on_by_automoli:
             return
 
-        # self.lg(
-        #    f"{stack()[0][3]}: {entity} changed {attribute} from {old} to {new}",
-        #    level=logging.DEBUG,
-        # )
-        self.lg(f"{hl(entity)} was turned '{new}' manually")
+        # Determine if state change was caused by an automation
+        automation_name = ""
+        automations = await self.get_state(entity_id="automation")
+        for automation in automations:
+            automation_state = await self.get_state(
+                entity_id=automation, attribute="all"
+            )
+            automation_context_id = dict(dict(automation_state).get("context")).get(
+                "id"
+            )
+            if context_id == automation_context_id:
+                automation_name = dict(dict(automation_state).get("attributes")).get(
+                    "friendly_name"
+                )
+        if automation_name == "":
+            self.lg(f"{hl(await self.get_name(entity))} was turned '{state}' manually")
+        else:
+            self.lg(
+                f"{hl(await self.get_name(entity))} was turned '{state}' by automation '{automation_name}'"
+            )
 
         # cancel scheduled callbacks
         await self.clear_handles()
 
         self.lg(
-            f"{stack()[0][3]}: handles cleared and cancelled all scheduled timers"
-            f" | {self.dimming = }",
+            f"{stack()[0][3]}: handles cleared and cancelled all scheduled timers",
             level=logging.DEBUG,
         )
 
@@ -919,10 +952,12 @@ class AutoMoLi(hass.Hass):  # type: ignore
 
         message: str = ""
 
-        self.lg(
-            f"{stack()[0][3]}: {await self.is_disabled() = } | {await self.is_blocked(onoff='off') = }",
-            level=logging.DEBUG,
-        )
+        # check logging level here first to avoid duplicate log entries when not debug logging
+        if logging.DEBUG >= self.loglevel:
+            self.lg(
+                f"{stack()[0][3]}: {await self.is_disabled() = } | {await self.is_blocked(onoff='off') = }",
+                level=logging.DEBUG,
+            )
 
         # check if automoli is disabled via home assistant entity or blockers like the "shower case"
         if (await self.is_disabled()) or (await self.is_blocked(onoff="off")):
@@ -953,7 +988,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
                     "brightness_step_pct": int(self.dim["brightness_step_pct"])
                 }
                 message = (
-                    f"{hl(self.room.name.capitalize())} → "
+                    f"{hl(self.room.name.replace('_',' ').title())} → "
                     f"dim to {hl(self.dim['brightness_step_pct'])} | "
                     f"{hl('off')} in {natural_time(seconds_before)}"
                 )
@@ -961,7 +996,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
             elif dim_method == DimMethod.TRANSITION:
                 dim_attributes = {"transition": int(seconds_before)}
                 message = (
-                    f"{hl(self.room.name.capitalize())} → transition to "
+                    f"{hl(self.room.name.replace('_',' ').title())} → transition to "
                     f"{hl('off')} ({natural_time(seconds_before)})"
                 )
 
@@ -1085,7 +1120,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 self._switched_on_by_automoli.add(item)
 
             self.lg(
-                f"{hl(self.room.name.capitalize())} turned {hl('on')} by {hl(source)} → "
+                f"{hl(self.room.name.replace('_',' ').title())} turned {hl('on')} by {hl(await self.get_name(source))} → "
                 f"{'hue' if self.active['is_hue_group'] else 'ha'} scene: "
                 f"{hl(light_setting.replace('scene.', ''))}"
                 f" | delay: {hl(natural_time(int(self.active['delay'])))}",
@@ -1099,9 +1134,11 @@ class AutoMoLi(hass.Hass):  # type: ignore
                     [await self.get_state(entity) == "off" for entity in self.lights]
                 ):
                     self.lg(
-                        "no lights turned on because current 'daytime' light setting is 0"
+                        "no lights turned on because current 'daytime' light setting is 0",
+                        level=logging.DEBUG,
                     )
-                await self.lights_off({})
+                else:
+                    await self.lights_off({})
 
             else:
                 # last check until we switch all the lights on... really!
@@ -1122,15 +1159,14 @@ class AutoMoLi(hass.Hass):  # type: ignore
                             entity_id=entity,  # type:ignore
                             brightness_pct=light_setting,  # type:ignore
                         )
-
-                    self.lg(
-                        f"{hl(self.room.name.capitalize())} turned {hl('on')} by {hl(source)} → "
-                        f"brightness: {hl(light_setting)}%"
-                        f" | delay: {hl(natural_time(int(self.active['delay'])))}",
-                        icon=ON_ICON,
-                    )
                     self._switched_on_by_automoli.add(entity)
 
+                self.lg(
+                    f"{hl(self.room.name.replace('_',' ').title())} turned {hl('on')} by {hl(await self.get_name(source))} → "
+                    f"brightness: {hl(light_setting)}%"
+                    f" | delay: {hl(natural_time(int(self.active['delay'])))}",
+                    icon=ON_ICON,
+                )
         else:
             raise ValueError(
                 f"invalid brightness/scene: {light_setting!s} " f"in {self.room}"
@@ -1139,10 +1175,12 @@ class AutoMoLi(hass.Hass):  # type: ignore
     async def lights_off(self, _: dict[str, Any]) -> None:
         """Turn off the lights."""
 
-        self.lg(
-            f"{stack()[0][3]}: {await self.is_disabled() = } | {await self.is_blocked() = }",
-            level=logging.DEBUG,
-        )
+        # check logging level here first to avoid duplicate log entries when not debug logging
+        if logging.DEBUG >= self.loglevel:
+            self.lg(
+                f"{stack()[0][3]}: {await self.is_disabled() = } | {await self.is_blocked(onoff='off') = }",
+                level=logging.DEBUG,
+            )
 
         # check if automoli is disabled via home assistant entity or blockers like the "shower case"
         if (await self.is_disabled()) or (await self.is_blocked(onoff="off")):
@@ -1226,7 +1264,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
             return
 
         self.lg(
-            f"lights will be turned off in {hl(self.room.name.capitalize())} in "
+            f"lights will be turned off in {hl(self.room.name.replace('_',' ').title())} in "
             f"{DEFAULT_WARNING_DELAY} seconds → flashing warning",
             level=logging.DEBUG,
         )
@@ -1489,3 +1527,8 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 prefix = self.config["_prefixes"][key]
 
             self.lg(f"{indent}{key}: {prefix}{hl(value)}{unit}", log_to_ha=False)
+
+    async def get_name(self, entity_id: str) -> str:
+        return await self.get_state(
+            entity_id, attribute="friendly_name", default=entity_id
+        )
