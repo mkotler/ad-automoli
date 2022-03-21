@@ -985,7 +985,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
                     if self.sensor_attr.get("blocked_on_by", "") == "":
                         self.lg(
                             f"Motion detected in {hl(self.room.name.replace('_',' ').title())} "
-                            f"but blocked by {entity} with state '{state}'"
+                            f"but blocked by {self.get_name(entity)} with state '{state}'"
                         )
                     await self.update_room_stats(stat="blockedOn", entity=entity)
                     return True
