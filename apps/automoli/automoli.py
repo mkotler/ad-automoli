@@ -356,6 +356,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
 
         # sensors that will shorten current active delay
         self.shorten_delay: set[str] = self.listr(self.getarg("shorten_delay", set()))
+        self.shorten_delay_active: bool = False
 
         # store if an entity has been switched on by automoli
         # None: automoli will turn off lights after motion detected
@@ -674,7 +675,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
             ]
         ):
             # all motion sensors off, starting timer
-            await self.refresh_timer()
+            await self.refresh_timer(refresh_type="motion_cleared")
         else:
             # cancel scheduled callbacks
             await self.clear_handles()
@@ -842,6 +843,9 @@ class AutoMoLi(hass.Hass):  # type: ignore
         else:
             await asyncio.gather(*[self.cancel_timer(handle) for handle in handles])
 
+        # reset shortened delay status
+        self.shorten_delay_active = False
+
         self.lg(f"{stack()[0][3]}: cancelled scheduled callbacks", level=logging.DEBUG)
 
     async def refresh_timer(self, refresh_type: str = "normal") -> None:
@@ -854,8 +858,16 @@ class AutoMoLi(hass.Hass):  # type: ignore
 
         dim_in_sec = 0
 
-        # cancel scheduled callbacks
-        await self.clear_handles()
+        # if delay is currently shortened
+        if self.shorten_delay_active:
+            # as long as don't get another shorten_delay or motion cleared *after* shortened delay
+            # then clear handles and go back to normal delay
+            if refresh_type != "shorten_delay" and refresh_type != "motion_cleared":
+                await self.update_room_stats(stat="shortenDelay", enable=False)
+                await self.clear_handles()
+        # if delay is not currently shortened then still clear handles
+        else:
+            await self.clear_handles()
 
         # if an external event (e.g., switch turned on manually) was detected use delay_outside_events
         if refresh_type == "outside_change":
@@ -864,12 +876,6 @@ class AutoMoLi(hass.Hass):  # type: ignore
             delay = DEFAULT_SHORT_DELAY
         else:
             delay = self.active.get("delay")
-
-        if (
-            self.sensor_attr.get("delay_shortened_by", "") != ""
-            and refresh_type != "shorten_delay"
-        ):
-            await self.update_room_stats(stat="shortenDelay", enable=False)
 
         # if no delay is set or delay = 0, lights will not switched off by AutoMoLi
         if delay:
@@ -915,6 +921,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
         self, entity: str, attribute: str, old: str, new: str, _: dict[str, Any]
     ) -> None:
         """shorten the time delay for turning off lights"""
+        self.shorten_delay_active = True
         await self.update_room_stats(stat="shortenDelay", enable=True, entity=entity)
         await self.refresh_timer(refresh_type="shorten_delay")
 
@@ -985,7 +992,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
                     if self.sensor_attr.get("blocked_on_by", "") == "":
                         self.lg(
                             f"Motion detected in {hl(self.room.name.replace('_',' ').title())} "
-                            f"but blocked by {self.get_name(entity)} with state '{state}'"
+                            f"but blocked by {await self.get_name(entity)} with state '{state}'"
                         )
                     await self.update_room_stats(stat="blockedOn", entity=entity)
                     return True
@@ -1000,7 +1007,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
                         self.lg(
                             f"No motion in {hl(self.room.name.replace('_',' ').title())} since "
                             f"{hl(natural_time(int(self.active['delay'])))} → "
-                            f"but blocked by {self.get_name(entity)} with state '{state}'"
+                            f"but blocked by {await self.get_name(entity)} with state '{state}'"
                         )
                     await self.update_room_stats(stat="blockedOff", entity=entity)
                     return True
@@ -1101,6 +1108,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
         self.lg(message, icon=OFF_ICON)
 
     async def turn_off_lights(self, kwargs: dict[str, Any]) -> None:
+        at_least_one_turned_off = False
         if lights := kwargs.get("lights"):
             self.lg(f"{stack()[0][3]}: {lights = }", level=logging.DEBUG)
             for light in lights:
@@ -1108,7 +1116,10 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 if light in self._switched_on_by_automoli:
                     self._switched_on_by_automoli.remove(light)
                 self._switched_off_by_automoli.add(light)
+                at_least_one_turned_off = True
             self.run_in_thread(self.turned_off, thread=self.notify_thread)
+        if at_least_one_turned_off:
+            await self.update_room_stats(stat="lastOff")
 
     async def lights_on(self, source: str = "<unknown>", force: bool = False) -> None:
         """Turn on the lights."""
@@ -1120,6 +1131,9 @@ class AutoMoLi(hass.Hass):  # type: ignore
         )
 
         force = bool(force or self.dimming)
+
+        if source != "daytime change" and source != "<unknown>":
+            source = await self.get_name(source)
 
         if illuminance_threshold := self.thresholds.get(EntityType.ILLUMINANCE.idx):
 
@@ -1191,7 +1205,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
             await self.update_room_stats(stat="lastOn")
 
             self.lg(
-                f"{hl(self.room.name.replace('_',' ').title())} turned {hl('on')} by {hl(await self.get_name(source))} → "
+                f"{hl(self.room.name.replace('_',' ').title())} turned {hl('on')} by {hl(source)} → "
                 f"{'hue' if self.active['is_hue_group'] else 'ha'} scene: "
                 f"{hl(light_setting.replace('scene.', ''))}"
                 f" | delay: {hl(natural_time(int(self.active['delay'])))}",
@@ -1235,7 +1249,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
                         self._switched_off_by_automoli.remove(entity)
 
                 self.lg(
-                    f"{hl(self.room.name.replace('_',' ').title())} turned {hl('on')} by {hl(await self.get_name(source))} → "
+                    f"{hl(self.room.name.replace('_',' ').title())} turned {hl('on')} by {hl(source)} → "
                     f"brightness: {hl(light_setting)}%"
                     f" | delay: {hl(natural_time(int(self.active['delay'])))}",
                     icon=ON_ICON,
@@ -1326,16 +1340,19 @@ class AutoMoLi(hass.Hass):  # type: ignore
             else self.night_mode.get("light")
         )
 
-        if shortenedBy := self.sensor_attr.get("delay_shortened_by", "") != "":
+        if self.shorten_delay_active:
+            shortenedBy = self.sensor_attr.get("delay_shortened_by", "")
             self.lg(
                 f"No motion in {hl(self.room.name.replace('_',' ').title())} for "
                 f"{hl(natural_time(int(delay)))} shortened by {shortenedBy} → turned {hl('off')}",
                 icon=OFF_ICON,
             )
             await self.update_room_stats(stat="shortenedDelay", enable=False)
+        # BUG: If lights were manually turned on (when light_setting == 0) will incorrectly hit this condition instead of the
+        # "No motion in ..." case below
         elif light_setting == 0:
             self.lg(
-                f"daytime changed light setting to 0% in {hl(self.room.name.replace('_',' ').title())} → turned {hl('off')}",
+                f"Daytime changed light setting to 0% in {hl(self.room.name.replace('_',' ').title())} → turned {hl('off')}",
                 icon=OFF_ICON,
             )
         else:
@@ -1700,8 +1717,6 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 self.sensor_attr["time_lights_on_today"] = await self.get_state(
                     self.entity_id, attribute="time_lights_on_today", default="00:00:00"
                 )
-                if self.sensor_attr["time_lights_on_today"] == None:
-                    self.sensor_attr["time_lights_on_today"] = "00:00:00"
 
                 self.sensor_onToday = (
                     datetime.strptime(
@@ -1909,7 +1924,9 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 replace=True,
             )
 
-    async def print_room_stats(self, **kwargs: dict[str, Any]) -> None:
+    async def print_room_stats(
+        self, appInit: bool = False, kwargs: dict[str, Any] | None = None
+    ) -> None:
         currentTime = datetime.now()
         adjustedOnToday = int(self.sensor_onToday)
 
@@ -1940,7 +1957,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
                     f"{hl(self.room_name.replace('_',' ').title())} was turned off manually {manualOff} time(s)"
                 )
 
-            if kwargs.get("appInit", False):
+            if appInit:
                 self.lg(
                     f"{self.sensor_state = } | {self.sensor_attr = }",
                     level=logging.DEBUG,
