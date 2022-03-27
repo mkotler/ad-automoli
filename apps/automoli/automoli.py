@@ -1785,16 +1785,23 @@ class AutoMoLi(hass.Hass):  # type: ignore
             self.sensor_onToday
         )
 
-        self.sensor_attr.pop("times_turned_on_automatically", 0)
-        self.sensor_attr.pop("times_turned_off_automatically", 0)
-        self.sensor_attr.pop("times_turned_on_manually", 0)
-        self.sensor_attr.pop("times_turned_off_manually", 0)
+        # If lights are on, check if they were last turned on automatically or manually
+        # If a restart happened and reset is called, assume lights were turned on manually
+        if any([await self.get_state(entity) == "on" for entity in self.lights]):
+            self.sensor_state = "on"
+            if len(self._switched_on_by_automoli) > 0:
+                self.sensor_attr["times_turned_on_automatically"] = 1
+                self.sensor_attr.pop("times_turned_on_manually", 0)
+            else:
+                self.sensor_attr.pop("times_turned_on_automatically", 0)
+                self.sensor_attr["times_turned_on_manually"] = 1
+        else:
+            self.sensor_state = "off"
+            self.sensor_attr.pop("times_turned_on_automatically", 0)
+            self.sensor_attr.pop("times_turned_on_manually", 0)
 
-        self.sensor_state = (
-            "on"
-            if any([await self.get_state(entity) == "on" for entity in self.lights])
-            else "off"
-        )
+        self.sensor_attr.pop("times_turned_off_automatically", 0)
+        self.sensor_attr.pop("times_turned_off_manually", 0)
 
         if self.track_room_stats:
             await self.set_state(
