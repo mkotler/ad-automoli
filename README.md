@@ -173,7 +173,8 @@ key | optional | type | default | description
 `block_off_switch_entities` | True | list/string | | If the state of **any** entity is *off*, AutoMoLi will not turn *off* lights until the entity is no longer *off*. (Use an *input_boolean* for example)
 `block_off_switch_states` | True | list/string | ["off"] | Custom states for `block_off_switch_entities`. If the state of **any** entity is *in this list*, AutoMoLi will not turn *off* lights until the entity is no longer in this list. Can be used to block turning off lights if the bathroom door is closed for example.
 `disable_hue_groups` | False | boolean | | Disable the use of Hue Groups/Scenes
-`shorten_delay` | True | list/string |  | One ore more Home Assistant Entities that when a state chnage to "on" happens will shorten the delay to 60 seconds (e.g., opening a door would reduce the timer to 60 seconds for turning off the room's  lights )
+`override_delay_entities` | True | list/string |  | One ore more Home Assistant Entities that when a state change to "on" happens will override the delay (e.g., opening a door would reduce the timer to default 60 seconds for turning off the room's  lights )
+`override_delay` | True | integer | 60 | Seconds to update delay to when one of the entities in `override_delay_entities` changes its state to "on"
 `warning_flash` | True | boolean | false | Flash the lights (off and then on) 60 seconds before AutoMoLi will turn them off
 `debug_log` | True | bool | false | Activate debug logging (for this room)
 `colorize_logging` | True | bool | True | Use ANSI colors in the log. On by default but can be turned off to remove escape codes for viewers that do not support coloring. 

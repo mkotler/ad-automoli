@@ -43,7 +43,7 @@ DEFAULT_DAYTIMES: list[dict[str, str | int]] = [
     dict(starttime="22:30", name="night", light=0),
 ]
 DEFAULT_LOGLEVEL = "INFO"
-DEFAULT_SHORT_DELAY = 60
+DEFAULT_OVERRIDE_DELAY = 60
 DEFAULT_WARNING_DELAY = 60
 
 CONFIG_APPNAME = "default"
@@ -354,9 +354,14 @@ class AutoMoLi(hass.Hass):  # type: ignore
             self.getarg("block_off_switch_states", set(["off"]))
         )
 
-        # sensors that will shorten current active delay
-        self.shorten_delay: set[str] = self.listr(self.getarg("shorten_delay", set()))
-        self.shorten_delay_active: bool = False
+        # sensors that will change current default delay
+        self.override_delay_entities: set[str] = self.listr(
+            self.getarg("override_delay_entities", set())
+        )
+        self.override_delay: int = int(
+            self.getarg("override_delay", DEFAULT_OVERRIDE_DELAY)
+        )
+        self.override_delay_active: bool = False
 
         # store if an entity has been switched on by automoli
         # None: automoli will turn off lights after motion detected
@@ -545,9 +550,9 @@ class AutoMoLi(hass.Hass):  # type: ignore
             if at_least_one_turned_on:
                 await self.update_room_stats(stat="lastOn", appInit=True)
 
-        # set up state listener for entities that will shorten the current delay
+        # set up state listener for entities that will override the current delay
         # on/off-only sensors without events on every motion
-        for entity in self.shorten_delay:
+        for entity in self.override_delay_entities:
             listener.add(
                 self.listen_state(
                     self.update_delay,
@@ -566,7 +571,8 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 "lights": self.lights,
                 "dim": self.dim,
                 "sensors": self.sensors,
-                "shorten_delay": self.shorten_delay,
+                "override_delay_entities": self.override_delay_entities,
+                "override_delay": self.override_delay,
                 "disable_hue_groups": self.disable_hue_groups,
                 "warning_flash": self.warning_flash,
                 "only_own_events": self.only_own_events,
@@ -843,8 +849,8 @@ class AutoMoLi(hass.Hass):  # type: ignore
         else:
             await asyncio.gather(*[self.cancel_timer(handle) for handle in handles])
 
-        # reset shortened delay status
-        self.shorten_delay_active = False
+        # reset override delay status
+        self.override_delay_active = False
 
         self.lg(f"{stack()[0][3]}: cancelled scheduled callbacks", level=logging.DEBUG)
 
@@ -858,22 +864,22 @@ class AutoMoLi(hass.Hass):  # type: ignore
 
         dim_in_sec = 0
 
-        # if delay is currently shortened
-        if self.shorten_delay_active:
-            # as long as don't get another shorten_delay or motion cleared *after* shortened delay
+        # if delay is currently overridden
+        if self.override_delay_active:
+            # as long as don't get another override_delay or motion cleared *after* an overridden delay
             # then clear handles and go back to normal delay
-            if refresh_type != "shorten_delay" and refresh_type != "motion_cleared":
-                await self.update_room_stats(stat="shortenDelay", enable=False)
+            if refresh_type != "override_delay" and refresh_type != "motion_cleared":
+                await self.update_room_stats(stat="overrideDelay", enable=False)
                 await self.clear_handles()
-        # if delay is not currently shortened then still clear handles
+        # if delay is not currently overridden then still clear handles
         else:
             await self.clear_handles()
 
         # if an external event (e.g., switch turned on manually) was detected use delay_outside_events
         if refresh_type == "outside_change":
             delay = self.delay_outside_events
-        elif refresh_type == "shorten_delay":
-            delay = DEFAULT_SHORT_DELAY
+        elif refresh_type == "override_delay":
+            delay = self.override_delay
         else:
             delay = self.active.get("delay")
 
@@ -905,7 +911,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 )
                 await self.update_room_stats("refreshTimer", time=timer_info[0])
 
-            if self.warning_flash and refresh_type != "shorten_delay":
+            if self.warning_flash and refresh_type != "override_delay":
                 handle = await self.run_in(
                     self.warning_flash_off, (int(delay) - DEFAULT_WARNING_DELAY)
                 )
@@ -920,10 +926,10 @@ class AutoMoLi(hass.Hass):  # type: ignore
     async def update_delay(
         self, entity: str, attribute: str, old: str, new: str, _: dict[str, Any]
     ) -> None:
-        """shorten the time delay for turning off lights"""
-        self.shorten_delay_active = True
-        await self.update_room_stats(stat="shortenDelay", enable=True, entity=entity)
-        await self.refresh_timer(refresh_type="shorten_delay")
+        """override the time delay for turning off lights"""
+        self.override_delay_active = True
+        await self.update_room_stats(stat="overrideDelay", enable=True, entity=entity)
+        await self.refresh_timer(refresh_type="override_delay")
 
     async def night_mode_active(self) -> bool:
         return bool(
@@ -1340,14 +1346,14 @@ class AutoMoLi(hass.Hass):  # type: ignore
             else self.night_mode.get("light")
         )
 
-        if self.shorten_delay_active:
-            shortenedBy = self.sensor_attr.get("delay_shortened_by", "")
+        if self.override_delay_active:
+            overriddenBy = self.sensor_attr.get("delay_overridden_by", "")
             self.lg(
                 f"No motion in {hl(self.room.name.replace('_',' ').title())} for "
-                f"{hl(natural_time(int(delay)))} shortened by {shortenedBy} → turned {hl('off')}",
+                f"{hl(natural_time(int(delay)))} overridden by {overriddenBy} → turned {hl('off')}",
                 icon=OFF_ICON,
             )
-            await self.update_room_stats(stat="shortenedDelay", enable=False)
+            await self.update_room_stats(stat="overrideDelay", enable=False)
         # BUG: If lights were manually turned on (when light_setting == 0) will incorrectly hit this condition instead of the
         # "No motion in ..." case below
         elif light_setting == 0:
@@ -1671,7 +1677,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
     # "last_motion_detected": Last time motion was detected
     # "last_motion_by": Entity from which motion detected
     # "turning_off_at": Room will be turned off at this time
-    # "delay_shortened_by": Entity that caused delay to be shortened
+    # "delay_overridden_by": Entity that caused delay to be overridden
     # "blocked_on_by": Entity that is currently blocking the light to be turned on
     # "blocked_off_by": Entity that is currently blocking the light from being turned off
     # "disabled_by": Entity that is currently disabling AutoMoLi
@@ -1860,17 +1866,17 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 countManualOff = self.sensor_attr.get("times_turned_off_manually", 0)
                 self.sensor_attr["times_turned_off_manually"] = countManualOff + 1
             self.sensor_attr.pop("turning_off_at", 0)
-            self.sensor_attr.pop("delay_shortened_by", "")
+            self.sensor_attr.pop("delay_overridden_by", "")
             self.sensor_attr.pop("blocked_off_by", "")
             self.sensor_attr.pop("disabled_by", "")
 
-        elif stat == "shortenDelay":
+        elif stat == "overrideDelay":
             if kwargs.get("enable"):
-                self.sensor_attr["delay_shortened_by"] = await self.get_name(
+                self.sensor_attr["delay_overridden_by"] = await self.get_name(
                     kwargs.get("entity")
                 )
             else:
-                self.sensor_attr.pop("delay_shortened_by", "")
+                self.sensor_attr.pop("delay_overridden_by", "")
 
         elif stat == "refreshTimer":
             if self.sensor_state == "on":
@@ -1879,6 +1885,8 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 )
             else:
                 self.sensor_attr.pop("turning_off_at", "")
+            self.sensor_attr.pop("blocked_off_by", "")
+            self.sensor_attr.pop("disabled_by", "")
 
         elif stat == "switchDaytime":
             light_setting = (
