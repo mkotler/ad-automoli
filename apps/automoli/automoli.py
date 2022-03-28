@@ -1398,7 +1398,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
 
         # turn lights on again in 1s
         if at_least_one_turned_off:
-            self.run_in(self.warning_flash_on, 1)
+            await self.run_in(self.warning_flash_on, 1)
 
     async def warning_flash_on(self, _: dict[str, Any] | None = None) -> None:
         # turn lights back on after 1s delay
@@ -1828,12 +1828,6 @@ class AutoMoLi(hass.Hass):  # type: ignore
         if isinstance(stat, dict):
             stat = dict(stat).get("stat", "")
 
-        if logging.DEBUG >= self.loglevel:
-            message = kwargs.get("message", "")
-            self.sensor_attr[
-                "debug_message"
-            ] = f"{stat}: {datetime.now().strftime(TIME_FORMAT)} {message}"
-
         if stat == "motion":
             self.sensor_attr["last_motion_detected"] = currentTimeStr
             self.sensor_attr["last_motion_by"] = await self.get_name(
@@ -1841,6 +1835,10 @@ class AutoMoLi(hass.Hass):  # type: ignore
             )
 
         elif stat == "lastOn":
+            # Should not need this line with the get_state call above
+            # However, get_state is not returning correctly immediately
+            self.sensor_state = "on"
+
             self.sensor_attr["last_turned_on"] = currentTimeStr
             self.sensor_attr.pop("last_turned_off", "")
             countAutoOn = self.sensor_attr.get("times_turned_on_automatically", 0)
@@ -1852,10 +1850,17 @@ class AutoMoLi(hass.Hass):  # type: ignore
                     self.sensor_attr["times_turned_on_automatically"] = countAutoOn + 1
             else:
                 self.sensor_attr["times_turned_on_manually"] = countManualOn + 1
+                self.sensor_attr.pop("last_motion_detected", "")
+                self.sensor_attr.pop("last_motion_by", "")
+            self.sensor_attr.pop("delay_overridden_by", "")
             self.sensor_attr.pop("blocked_on_by", "")
             self.sensor_attr.pop("disabled_by", "")
 
         elif stat == "lastOff":
+            # Should not need this line with the get_state call above
+            # However, get_state is not returning correctly immediately
+            self.sensor_state = "off"
+
             self.sensor_attr["last_turned_off"] = currentTimeStr
             lastOn = datetime.strptime(
                 self.sensor_attr["last_turned_on"], DATETIME_FORMAT
@@ -1922,6 +1927,13 @@ class AutoMoLi(hass.Hass):  # type: ignore
             lastOn = datetime.strptime(
                 self.sensor_attr["last_turned_on"], DATETIME_FORMAT
             )
+
+            # Unless last_turned_on was yesterday and then record from midnight
+            today = date.today()
+            lastOnDate = date(lastOn.year, lastOn.month, lastOn.day)
+            if today != lastOnDate:
+                lastOn = datetime(today.year, today.month, today.day, 0, 0, 0)
+
             adjustedOnToday = int(self.sensor_onToday) + (
                 int(datetime.timestamp(currentTime)) - int(datetime.timestamp(lastOn))
             )
@@ -1929,7 +1941,16 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 adjustedOnToday
             )
             # Update onToday again every minute while the light is on
-            self.run_in(self.update_room_stats, 60, stat="updateEveryMin")
+            handle = await self.run_in(
+                self.update_room_stats, 60, stat="updateEveryMin"
+            )
+            self.room.handles_automoli.add(handle)
+
+        if logging.DEBUG >= self.loglevel:
+            message = kwargs.get("message", "")
+            self.sensor_attr[
+                "debug_message"
+            ] = f"{stat} | {datetime.now().strftime('%H:%M:%S.%f')} | {self.sensor_onToday = } | { message }"
 
         if self.track_room_stats:
             await self.set_state(
