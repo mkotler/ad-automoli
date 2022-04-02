@@ -397,8 +397,6 @@ class AutoMoLi(hass.Hass):  # type: ignore
         # entity lists for initial discovery
         states = await self.get_state()
 
-        self.handle_turned_off: str | None = None
-
         # define light entities switched by automoli
         self.lights: set[str] = self.listr(self.getarg("lights", set()))
         if not self.lights:
@@ -461,6 +459,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
         self.sensor_state: str = "off"
         self.sensor_onToday: int = 0
         self.sensor_attr: dict[str, Any] = {}
+        self.sensor_update_handle: str | None = None
         await self.init_room_stats()
         self.run_daily(self.reset_room_stats, "00:00:00")
         self.listen_event(self.room_event, EVENT_AUTOMOLI_STATS)
@@ -568,6 +567,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 "delay_outside_events": self.delay_outside_events,
                 "active_daytime": self.active_daytime,
                 "daytimes": daytimes,
+                "transition_on_daytime_switch": self.transition_on_daytime_switch,
                 "lights": self.lights,
                 "dim": self.dim,
                 "sensors": self.sensors,
@@ -1229,7 +1229,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
                         level=logging.DEBUG,
                     )
                 else:
-                    await self.lights_off({})
+                    await self.lights_off(daytimeChange=True)
 
             else:
                 # last check until we switch all the lights on... really!
@@ -1317,8 +1317,12 @@ class AutoMoLi(hass.Hass):  # type: ignore
         if at_least_one_turned_off:
             await self.update_room_stats(stat="lastOff")
             delay = kwargs.get("timeDelay", 0)
+            daytimeChange = kwargs.get("daytimeChange", False)
             self.run_in_thread(
-                self.turned_off, thread=self.notify_thread, timeDelay=delay
+                self.turned_off,
+                thread=self.notify_thread,
+                timeDelay=delay,
+                daytimeChange=daytimeChange,
             )
 
         # experimental | reset for xiaomi "super motion" sensors | idea from @wernerhp
@@ -1339,12 +1343,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
         await self.clear_handles()
 
         delay = kwargs.get("timeDelay", self.active["delay"])
-
-        light_setting = (
-            self.active.get("light_setting")
-            if not await self.night_mode_active()
-            else self.night_mode.get("light")
-        )
+        daytimeChange = kwargs.get("daytimeChange", False)
 
         if self.override_delay_active:
             overriddenBy = self.sensor_attr.get("delay_overridden_by", "")
@@ -1354,9 +1353,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 icon=OFF_ICON,
             )
             await self.update_room_stats(stat="overrideDelay", enable=False)
-        # BUG: If lights were manually turned on (when light_setting == 0) will incorrectly hit this condition instead of the
-        # "No motion in ..." case below
-        elif light_setting == 0:
+        elif daytimeChange:
             self.lg(
                 f"Daytime changed light setting to 0% in {hl(self.room.name.replace('_',' ').title())} → turned {hl('off')}",
                 icon=OFF_ICON,
@@ -1631,7 +1628,9 @@ class AutoMoLi(hass.Hass):  # type: ignore
         indent = indentation * " "
 
         # legacy way
-        if (key == "delay" or key == "delay_outside_events") and isinstance(value, int):
+        if (
+            key == "delay" or key == "delay_outside_events" or key == "override_delay"
+        ) and isinstance(value, int):
             unit = "min"
             min_value = f"{int(value / 60)}:{int(value % 60):02d}"
             self.lg(
@@ -1683,6 +1682,11 @@ class AutoMoLi(hass.Hass):  # type: ignore
     # "disabled_by": Entity that is currently disabling AutoMoLi
     # "current_light_setting": Current % that the light will be turned on
     # "debug_message": Add attribute that logs last stat that was updated
+    #
+    # Note: Manual/automatic counts can get out of sync if a room has multiple lights/switches
+    # because automatic changes will be counted once for all lights in the room, but manual changes
+    # will be counted individually per light. Can avoid this problem by separating each switch into
+    # its own room.
 
     async def init_room_stats(self, kwargs: dict[str, Any] | None = None) -> None:
         entity = await self.get_state(self.entity_id)
@@ -1856,6 +1860,11 @@ class AutoMoLi(hass.Hass):  # type: ignore
             self.sensor_attr.pop("blocked_on_by", "")
             self.sensor_attr.pop("disabled_by", "")
 
+            # Update onToday again every minute until light is off
+            self.sensor_update_handle = self.run_every(
+                self.update_room_stats, "now+60", 60, stat="updateEveryMin"
+            )
+
         elif stat == "lastOff":
             # Should not need this line with the get_state call above
             # However, get_state is not returning correctly immediately
@@ -1940,17 +1949,14 @@ class AutoMoLi(hass.Hass):  # type: ignore
             self.sensor_attr["time_lights_on_today"] = self.seconds_to_time(
                 adjustedOnToday
             )
-            # Update onToday again every minute while the light is on
-            handle = await self.run_in(
-                self.update_room_stats, 60, stat="updateEveryMin"
-            )
-            self.room.handles_automoli.add(handle)
+        else:
+            if await self.timer_running(self.sensor_update_handle):
+                await self.cancel_timer(self.sensor_update_handle)
 
         if logging.DEBUG >= self.loglevel:
-            message = kwargs.get("message", "")
-            self.sensor_attr[
-                "debug_message"
-            ] = f"{stat} | {datetime.now().strftime('%H:%M:%S.%f')} | {self.sensor_onToday = } | { message }"
+            message = f"{stat} | {datetime.now().strftime('%H:%M:%S.%f')} | {self.sensor_onToday = } | { kwargs.get('message', '')} | {self.sensor_attr = }"
+            self.sensor_attr["debug_message"] = message
+            self.lg(f"{message}", level=logging.DEBUG)
 
         if self.track_room_stats:
             await self.set_state(
