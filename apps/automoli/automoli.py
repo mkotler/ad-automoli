@@ -799,12 +799,19 @@ class AutoMoLi(hass.Hass):  # type: ignore
             level=logging.DEBUG,
         )
 
+        filtered_lights = set(filter(lambda light: light != entity, self.lights))
+
         # update light stats when turned on/off manually
-        # and start timer if turned on manually
-        if state == "off":
+        # and refresh timer if any lights turned on manually
+        if state == "off" and all(
+            [self.get_state(light) == "off" for light in filtered_lights]
+        ):
+            # only set room off when all of the lights have been turned off
             self.run_in(self.update_room_stats, 0, stat="lastOff", auto=False)
         elif state == "on":
-            self.run_in(self.update_room_stats, 0, stat="lastOn", auto=False)
+            # only set room on when this is the first light turned on
+            if all([self.get_state(light) == "off" for light in filtered_lights]):
+                self.run_in(self.update_room_stats, 0, stat="lastOn", auto=False)
             self.refresh_timer(refresh_type="outside_change")
 
     def has_min_ad_version(self, required_version: str) -> bool:
