@@ -675,6 +675,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
         ):
             # all motion sensors off, starting timer
             self.refresh_timer(refresh_type="motion_cleared")
+            self.run_in(self.update_room_stats, 0, stat="motion_cleared", entity=entity)
         else:
             # cancel scheduled callbacks
             self.clear_handles()
@@ -1365,9 +1366,11 @@ class AutoMoLi(hass.Hass):  # type: ignore
         # Log last motion if there actually was motion
         lastMotionBy = self.sensor_attr.get("last_motion_by", "")
         if lastMotionBy != "":
-            self.lg(
-                f"  Last motion from {lastMotionBy} at {self.sensor_attr['last_motion_detected']}."
-            )
+            if (lastMotionWhen := self.sensor_attr.get("last_motion_cleared", "")) == 0:
+                lastMotionWhen = self.sensor_attr.get(
+                    "last_motion_detected", "<unknown>"
+                )
+                self.lg(f"  Last motion from {lastMotionBy} at {lastMotionWhen}.")
 
         # Log how long lights were on
         lastOn = datetime.strptime(self.sensor_attr["last_turned_on"], DATETIME_FORMAT)
@@ -1841,6 +1844,12 @@ class AutoMoLi(hass.Hass):  # type: ignore
 
         if stat == "motion":
             self.sensor_attr["last_motion_detected"] = currentTimeStr
+            self.sensor_attr.pop("last_motion_cleared", "")
+            self.sensor_attr["last_motion_by"] = self.get_name(kwargs.get("entity"))
+
+        elif stat == "motion_cleared":
+            self.sensor_attr["last_motion_cleared"] = currentTimeStr
+            self.sensor_attr.pop("last_motion_detected", "")
             self.sensor_attr["last_motion_by"] = self.get_name(kwargs.get("entity"))
 
         elif stat == "lastOn":
