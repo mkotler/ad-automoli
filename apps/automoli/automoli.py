@@ -333,7 +333,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
             self.getarg("disable_switch_entities", set())
         )
         self.disable_switch_states: set[str] = self.listr(
-            self.getarg("disable_switch_states", set(["off"]))
+            self.getarg("disable_switch_states", set(["off"])), False
         )
 
         # additional sensors that will block turning on or off lights
@@ -341,13 +341,13 @@ class AutoMoLi(hass.Hass):  # type: ignore
             self.getarg("block_on_switch_entities", set())
         )
         self.block_on_switch_states: set[str] = self.listr(
-            self.getarg("block_on_switch_states", set(["off"]))
+            self.getarg("block_on_switch_states", set(["off"])), False
         )
         self.block_off_switch_entities: set[str] = self.listr(
             self.getarg("block_off_switch_entities", set())
         )
         self.block_off_switch_states: set[str] = self.listr(
-            self.getarg("block_off_switch_states", set(["off"]))
+            self.getarg("block_off_switch_states", set(["off"])), False
         )
 
         # sensors that will change current default delay
