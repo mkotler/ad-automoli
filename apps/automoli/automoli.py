@@ -1868,9 +1868,21 @@ class AutoMoLi(hass.Hass):  # type: ignore
             self.sensor_state = "off"
 
             self.sensor_attr["last_turned_off"] = currentTimeStr
-            lastOn = datetime.strptime(
-                self.sensor_attr["last_turned_on"], DATETIME_FORMAT
-            )
+
+            # Python community recommend a strategy of
+            # "easier to ask for forgiveness than permission"
+            # https://stackoverflow.com/a/610923/13180763
+            try:
+                lastOn = datetime.strptime(
+                    self.sensor_attr["last_turned_on"], DATETIME_FORMAT
+                )
+            except AttributeError:
+                lastOn = currentTime
+                self.lg(
+                    "Room turned off but there was no record of turning it on",
+                    level=logging.DEBUG,
+                )
+
             self.sensor_onToday = int(self.sensor_onToday) + (
                 int(datetime.timestamp(currentTime)) - int(datetime.timestamp(lastOn))
             )
@@ -1883,7 +1895,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
             else:
                 countManualOff = self.sensor_attr.get("times_turned_off_manually", 0)
                 self.sensor_attr["times_turned_off_manually"] = countManualOff + 1
-            self.sensor_attr.pop("turning_off_at", 0)
+            self.sensor_attr.pop("turning_off_at", "")
             self.sensor_attr.pop("delay_overridden_by", "")
             self.sensor_attr.pop("blocked_off_by", "")
             self.sensor_attr.pop("disabled_by", "")
