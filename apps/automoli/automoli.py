@@ -755,6 +755,11 @@ class AutoMoLi(hass.Hass):  # type: ignore
         of a light setup a timer by calling `refresh_timer`
         """
 
+        self.lg(
+            f"outside_change_detected called for {entity = } with {old = } and {new = }",
+            level=logging.DEBUG,
+        )
+
         state = new
         # Check if got entire state object
         if attribute == "all":
@@ -1974,8 +1979,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 f" | {self.sensor_onToday = } | { kwargs.get('message', '')}"
             )
             self.sensor_attr["debug_message"] = log_message
-            self.lg(f"{log_message}", level=logging.DEBUG)
-            self.lg(f"{self.sensor_attr = }", level=logging.DEBUG)
+            self.lg(f"{log_message} | {self.sensor_attr = }", level=logging.DEBUG)
 
         if self.track_room_stats:
             self.set_state(
@@ -1984,6 +1988,11 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 attributes=self.sensor_attr,
                 replace=True,
             )
+
+        self.lg(
+            f"Update stats was called with {stat = } and updated state to {self.sensor_attr = }",
+            level=logging.DEBUG,
+        )
 
     # Global lock ensures that multiple log writes occur together when printing room stats
     @ad.global_lock
