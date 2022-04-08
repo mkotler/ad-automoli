@@ -54,9 +54,6 @@ SECONDS_PER_MIN: int = 60
 DATETIME_FORMAT = "%I:%M:%S%p %Y-%m-%d"
 TIME_FORMAT = "%H:%M:%S"
 
-# Used during development for logging or to run other code for testing purposes only
-DEBUG_TESTING = False
-
 
 class EntityType(Enum):
     LIGHT = "light."
@@ -600,11 +597,6 @@ class AutoMoLi(hass.Hass):  # type: ignore
 
         # show parsed config
         self.show_info(self.args)
-
-        # Print out initial room stats
-        if self.track_room_stats:
-            # Since print_room_stats has kwargs and not **kwargs calling run_in with delay = 0
-            self.run_in(self.print_room_stats, 0, appInit=True)
 
         self.refresh_timer()
 
@@ -1378,7 +1370,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
             datetime.timestamp(lastOn)
         )
         self.lg(
-            f"  {hl(self.room_name.replace('_',' ').title())} lights were on for "
+            f"  {hl(self.room_name.replace('_',' ').title())} was on for "
             f"{self.seconds_to_time(difference, True)} since {lastOn.strftime(DATETIME_FORMAT)}."
         )
 
@@ -1691,9 +1683,6 @@ class AutoMoLi(hass.Hass):  # type: ignore
     # its own room.
 
     def init_room_stats(self, _: Any | None = None) -> None:
-        if DEBUG_TESTING:
-            self.lg(f"init_room_stats called")
-
         entity = self.get_state(self.entity_id)
         self.sensor_attr["friendly_name"] = (
             self.room_name.replace("_", " ").title() + " Statistics"
@@ -1789,9 +1778,6 @@ class AutoMoLi(hass.Hass):  # type: ignore
             )
 
     def reset_room_stats(self, _: Any | None = None) -> None:
-        if DEBUG_TESTING:
-            self.lg(f"reset_room_stats called")
-
         self.sensor_onToday = 0
         self.sensor_attr["time_lights_on_today"] = self.seconds_to_time(
             self.sensor_onToday
@@ -1824,9 +1810,6 @@ class AutoMoLi(hass.Hass):  # type: ignore
             )
 
     def update_room_stats(self, kwargs: dict[str, Any] | None = None):
-        if DEBUG_TESTING:
-            self.lg(f"update_room_stats called")
-
         kwargs.setdefault("auto", True)
         stat = kwargs.get("stat", None)
         currentTime = datetime.now()
@@ -1866,16 +1849,8 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 # then assume automoli turned it on
                 if not kwargs.get("appInit") or (countAutoOn + countManualOn == 0):
                     self.sensor_attr["times_turned_on_automatically"] = countAutoOn + 1
-                    if DEBUG_TESTING:
-                        self.lg(
-                            f"Incremented times_turned_on_automatically from {countAutoOn} to {countAutoOn + 1}"
-                        )
             else:
                 self.sensor_attr["times_turned_on_manually"] = countManualOn + 1
-                if DEBUG_TESTING:
-                    self.lg(
-                        f"Incremented times_turned_on_manually from {countManualOn} to {countManualOn + 1}"
-                    )
                 self.sensor_attr.pop("last_motion_detected", "")
                 self.sensor_attr.pop("last_motion_by", "")
             self.sensor_attr.pop("delay_overridden_by", "")
@@ -1905,18 +1880,9 @@ class AutoMoLi(hass.Hass):  # type: ignore
             if kwargs.get("auto"):
                 countAutoOff = self.sensor_attr.get("times_turned_off_automatically", 0)
                 self.sensor_attr["times_turned_off_automatically"] = countAutoOff + 1
-                if DEBUG_TESTING:
-                    self.lg(
-                        f"Incremented times_turned_off_automatically from {countAutoOff} to {countAutoOff + 1}"
-                        f" | {self.sensor_attr.get('times_turned_off_automatically',0) = }"
-                    )
             else:
                 countManualOff = self.sensor_attr.get("times_turned_off_manually", 0)
                 self.sensor_attr["times_turned_off_manually"] = countManualOff + 1
-                if DEBUG_TESTING:
-                    self.lg(
-                        f"Incremented times_turned_on_manually from {countManualOff} to {countManualOff + 1}"
-                    )
             self.sensor_attr.pop("turning_off_at", 0)
             self.sensor_attr.pop("delay_overridden_by", "")
             self.sensor_attr.pop("blocked_off_by", "")
@@ -1958,9 +1924,6 @@ class AutoMoLi(hass.Hass):  # type: ignore
         elif stat == "disabled":
             self.sensor_attr["disabled_by"] = self.get_name(kwargs.get("entity"))
 
-        if DEBUG_TESTING and (stat == "lastOn" or stat == "lastOff"):
-            self.lg(f"{self.sensor_attr.get('times_turned_off_automatically',0) = }")
-
         # If the room is still on, record all the time it was on until now
         if self.sensor_state == "on":
 
@@ -1984,8 +1947,6 @@ class AutoMoLi(hass.Hass):  # type: ignore
             )
         else:
             if self.timer_running(self.sensor_update_handle):
-                if DEBUG_TESTING:
-                    self.lg("Cancelling sensor update timer ...")
                 self.cancel_timer(self.sensor_update_handle)
 
         if logging.DEBUG >= self.loglevel:
@@ -1998,25 +1959,16 @@ class AutoMoLi(hass.Hass):  # type: ignore
             self.lg(f"{self.sensor_attr = }", level=logging.DEBUG)
 
         if self.track_room_stats:
-            if DEBUG_TESTING and (stat == "lastOn" or stat == "lastOff"):
-                self.lg(f"before: {self.sensor_attr = }")
             self.set_state(
                 entity_id=self.entity_id,
                 state=self.sensor_state,
                 attributes=self.sensor_attr,
                 replace=True,
             )
-            if DEBUG_TESTING and (stat == "lastOn" or stat == "lastOff"):
-                self.lg(f"after: {self.sensor_attr = }")
 
     # Global lock ensures that multiple log writes occur together when printing room stats
     @ad.global_lock
     def print_room_stats(self, kwargs: dict[str, Any] | None = None) -> None:
-
-        if DEBUG_TESTING:
-            self.lg(f"print_room_stats called")
-
-        appInit = kwargs.get("appInit", False)
         currentTime = datetime.now()
         adjustedOnToday = int(self.sensor_onToday)
 
@@ -2051,12 +2003,6 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 self.lg(
                     f"{hl(self.room_name.replace('_',' ').title())} "
                     f"was turned off manually {manualOff} time(s)"
-                )
-
-            if appInit:
-                self.lg(
-                    f"{self.sensor_state = } | {self.sensor_attr = }",
-                    level=logging.DEBUG,
                 )
 
     def seconds_to_time(self, total, includeDays=False):
