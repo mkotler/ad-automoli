@@ -761,9 +761,11 @@ class AutoMoLi(hass.Hass):  # type: ignore
         )
 
         state = new
+        old_state = old
         # Check if got entire state object
         if attribute == "all":
             state = dict(new).get("state")
+            old_state = dict(old).get("state")
             context_id = dict(dict(new).get("context")).get("id")
 
         # ensure the change wasn't because of automoli
@@ -772,9 +774,10 @@ class AutoMoLi(hass.Hass):  # type: ignore
         ):
             return
 
-        # do not process if current state is 'unavailable' or 'unknown'
+        # do not process if current state is 'unavailable', 'unknown',
+        # or has not really changed (new == old)
         # assume that previous state holds until new state is available
-        if state == "unavailable" or state == "unknown":
+        if state == "unavailable" or state == "unknown" or state == old_state:
             return
 
         # Determine if state change was caused by an automation
@@ -857,9 +860,12 @@ class AutoMoLi(hass.Hass):  # type: ignore
 
         # if delay is currently overridden
         if self.override_delay_active:
-            # as long as don't get another override_delay or motion cleared *after* an overridden delay
-            # then clear handles and go back to normal delay
-            if refresh_type != "override_delay" and refresh_type != "motion_cleared":
+            # clear handles and go back to normal delay unless
+            # motion was cleared *after* overridden delay or
+            # refresh was triggered by another override_delay message
+            if refresh_type == "motion_cleared":
+                return
+            elif refresh_type != "override_delay":
                 self.run_in(
                     self.update_room_stats, 0, stat="overrideDelay", enable=False
                 )
@@ -923,11 +929,17 @@ class AutoMoLi(hass.Hass):  # type: ignore
         self, entity: str, attribute: str, old: str, new: str, _: dict[str, Any]
     ) -> None:
         """override the time delay for turning off lights"""
-        self.override_delay_active = True
-        self.run_in(
-            self.update_room_stats, 0, stat="overrideDelay", enable=True, entity=entity
-        )
-        self.refresh_timer(refresh_type="override_delay")
+        # only update the delay if any lights are on
+        if any([self.get_state(light) == "on" for light in self.lights]):
+            self.override_delay_active = True
+            self.run_in(
+                self.update_room_stats,
+                0,
+                stat="overrideDelay",
+                enable=True,
+                entity=entity,
+            )
+            self.refresh_timer(refresh_type="override_delay")
 
     def night_mode_active(self) -> bool:
         return bool(
@@ -1118,7 +1130,6 @@ class AutoMoLi(hass.Hass):  # type: ignore
         self.lg(message, icon=OFF_ICON)
 
     def turn_off_lights(self, kwargs: dict[str, Any]) -> None:
-        at_least_one_turned_off = False
         if lights := kwargs.get("lights"):
             self.lg(f"{stack()[0][3]}: {lights = }", level=logging.DEBUG)
             for light in lights:
@@ -1128,8 +1139,6 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 self._switched_off_by_automoli.add(light)
                 at_least_one_turned_off = True
             self.run_in(self.turned_off, 0)
-        if at_least_one_turned_off:
-            self.run_in(self.update_room_stats, 0, stat="lastOff")
 
     def lights_on(self, source: str = "<unknown>", force: bool = False) -> None:
         """Turn on the lights."""
@@ -1231,7 +1240,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
                         level=logging.DEBUG,
                     )
                 else:
-                    self.lights_off(daytimeChange=True)
+                    self.run_in(self.lights_off, 0, daytimeChange=True)
 
             else:
                 # last check until we switch all the lights on... really!
@@ -1317,7 +1326,6 @@ class AutoMoLi(hass.Hass):  # type: ignore
                     self._switched_off_by_automoli.add(entity)
                     at_least_one_turned_off = True
         if at_least_one_turned_off:
-            self.run_in(self.update_room_stats, 0, stat="lastOff")
             delay = kwargs.get("timeDelay", 0)
             daytimeChange = kwargs.get("daytimeChange", False)
             self.run_in(
