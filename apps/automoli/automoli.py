@@ -1883,7 +1883,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 lastOn = datetime.strptime(
                     self.sensor_attr["last_turned_on"], DATETIME_FORMAT
                 )
-            except AttributeError:
+            except KeyError:
                 lastOn = currentTime
                 self.lg(
                     "Room turned off but there was no record of turning it on",
