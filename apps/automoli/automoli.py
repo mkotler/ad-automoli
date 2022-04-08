@@ -44,6 +44,7 @@ DEFAULT_DAYTIMES: list[dict[str, str | int]] = [
 DEFAULT_LOGLEVEL = "INFO"
 DEFAULT_OVERRIDE_DELAY = 60
 DEFAULT_WARNING_DELAY = 60
+DEFAULT_COOLDOWN = 30
 
 CONFIG_APPNAME = "default"
 EVENT_MOTION_XIAOMI = "xiaomi_aqara.motion"
@@ -544,6 +545,9 @@ class AutoMoLi(hass.Hass):  # type: ignore
                     appInit=True,
                     source="On at restart",
                 )
+        # Track if within cooling down period
+        self.cooling_down: bool = False
+        self.cooling_down_handle: str | None = None
 
         # set up state listener for entities that will override the current delay
         # on/off-only sensors without events on every motion
@@ -830,6 +834,10 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 self.run_in(
                     self.update_room_stats, 0, stat="lastOff", auto=False, source=source
                 )
+            # if turned a light off manually, probably don't want AutoMoLi to immediately
+            # turn it back on so start cooldown period
+            self.cooling_down = True
+            self.cooling_down_handle = self.run_in(self.cooldown_off, DEFAULT_COOLDOWN)
         elif state == "on":
             # update stats to set room on when this is the first light turned on
             if self.sensor_state == "off":
@@ -838,6 +846,9 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 )
             # refresh timer if any lights turned on manually
             self.refresh_timer(refresh_type="outside_change")
+
+    def cooldown_off(self, _: dict[str, Any] | None = None) -> None:
+        self.cooling_down = False
 
     def has_min_ad_version(self, required_version: str) -> bool:
         required_version = required_version if required_version else "4.0.7"
@@ -974,6 +985,14 @@ class AutoMoLi(hass.Hass):  # type: ignore
                     self.lg(f"{APP_NAME} is disabled by {entity} with state '{state}'")
                 self.run_in(self.update_room_stats, 0, stat="disabled", entity=entity)
                 return True
+
+        # or because currently in cooldown period after an outside change
+        if self.cooling_down:
+            self.lg(f"{APP_NAME} is disabled during cooldown period")
+            self.run_in(
+                self.update_room_stats, 0, stat="disabled", entity="Cooling down"
+            )
+            return True
 
         return False
 
@@ -1987,7 +2006,10 @@ class AutoMoLi(hass.Hass):  # type: ignore
             self.sensor_attr.pop("turning_off_at", "")
 
         elif stat == "disabled":
-            self.sensor_attr["disabled_by"] = self.get_name(kwargs.get("entity"))
+            if self.entity_exists(entity := kwargs.get("entity")):
+                self.sensor_attr["disabled_by"] = self.get_name(entity)
+            else:
+                self.sensor_attr["disabled_by"] = entity
 
         # If the room is still on, record all the time it was on until now
         if self.sensor_state == "on":
