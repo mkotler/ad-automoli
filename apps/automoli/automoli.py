@@ -712,6 +712,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
     def motion_event(self, event: str, data: dict[str, str], _: dict[str, Any]) -> None:
         """Main handler for motion events."""
 
+        # Record motion happened in log and sensor even if blocked/disabled
         motion_trigger = data["entity_id"].replace(EntityType.MOTION.prefix, "")
         self.run_in(self.update_room_stats, 0, stat="motion", entity=motion_trigger)
         self.lg(
@@ -981,8 +982,10 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 state := self.get_state(entity, copy=False)
             ) and state in self.disable_switch_states:
                 # Only log first time disabled
-                if self.sensor_attr.get("disabled", "") == "":
-                    self.lg(f"{APP_NAME} is disabled by {entity} with state '{state}'")
+                if self.sensor_attr.get("disabled_by", "") == "":
+                    self.lg(
+                        f"{APP_NAME} is disabled by {self.get_name(entity)} with state '{state}'"
+                    )
                 self.run_in(self.update_room_stats, 0, stat="disabled", entity=entity)
                 return True
 
@@ -1023,7 +1026,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
 
                     self.refresh_timer()
                     # Only log first time blocked
-                    if self.sensor_attr.get("blocked_on_by", "") == "":
+                    if self.sensor_attr.get("blocked_off_by", "") == "":
                         self.lg(
                             f"🛁 No motion in {hl(self.room.name.replace('_',' ').title())} since "
                             f"{hl(natural_time(int(self.active['delay'])))} → "
@@ -1893,13 +1896,14 @@ class AutoMoLi(hass.Hass):  # type: ignore
 
         if stat == "motion":
             self.sensor_attr["last_motion_detected"] = currentTimeStr
-            self.sensor_attr.pop("last_motion_cleared", "")
             self.sensor_attr["last_motion_by"] = self.get_name(kwargs.get("entity"))
+            self.sensor_attr.pop("last_motion_cleared", "")
+            self.sensor_attr.pop("turning_off_at", "")
 
         elif stat == "motion_cleared":
             self.sensor_attr["last_motion_cleared"] = currentTimeStr
-            self.sensor_attr.pop("last_motion_detected", "")
             self.sensor_attr["last_motion_by"] = self.get_name(kwargs.get("entity"))
+            self.sensor_attr.pop("last_motion_detected", "")
 
         elif stat == "lastOn":
             # Should not need this line with the get_state call above
@@ -1938,23 +1942,8 @@ class AutoMoLi(hass.Hass):  # type: ignore
             self.sensor_state = "off"
 
             self.sensor_attr["last_turned_off"] = currentTimeStr
-
-            # Python community recommend a strategy of
-            # "easier to ask for forgiveness than permission"
-            # https://stackoverflow.com/a/610923/13180763
-            try:
-                lastOn = datetime.strptime(
-                    self.sensor_attr["last_turned_on"], DATETIME_FORMAT
-                )
-            except KeyError:
-                lastOn = currentTime
-                self.lg(
-                    "Room turned off but there was no record of turning it on",
-                    level=logging.DEBUG,
-                )
-
-            self.sensor_onToday = int(self.sensor_onToday) + (
-                int(datetime.timestamp(currentTime)) - int(datetime.timestamp(lastOn))
+            self.sensor_onToday = int(self.sensor_onToday) + int(
+                self._get_adjusted_time_on()
             )
             self.sensor_attr["time_lights_on_today"] = self.seconds_to_time(
                 self.sensor_onToday
@@ -2010,24 +1999,12 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 self.sensor_attr["disabled_by"] = self.get_name(entity)
             else:
                 self.sensor_attr["disabled_by"] = entity
+            self.sensor_attr.pop("turning_off_at", "")
 
         # If the room is still on, record all the time it was on until now
         if self.sensor_state == "on":
-
-            lastTurnedOn = self.sensor_attr.get("last_turned_on", "")
-            if lastTurnedOn == "":
-                lastOn = datetime.now()
-            else:
-                lastOn = datetime.strptime(lastTurnedOn, DATETIME_FORMAT)
-
-            # Unless last_turned_on was yesterday and then record from midnight
-            today = date.today()
-            lastOnDate = date(lastOn.year, lastOn.month, lastOn.day)
-            if today != lastOnDate:
-                lastOn = datetime(today.year, today.month, today.day, 0, 0, 0)
-
-            adjustedOnToday = int(self.sensor_onToday) + (
-                int(datetime.timestamp(currentTime)) - int(datetime.timestamp(lastOn))
+            adjustedOnToday = int(self.sensor_onToday) + int(
+                self._get_adjusted_time_on()
             )
             self.sensor_attr["time_lights_on_today"] = self.seconds_to_time(
                 adjustedOnToday
@@ -2095,6 +2072,33 @@ class AutoMoLi(hass.Hass):  # type: ignore
                     f"{hl(self.room_name.replace('_',' ').title())} "
                     f"was turned off manually {manualOff} time(s)"
                 )
+
+    def _get_adjusted_time_on(self) -> int:
+        # returns number of seconds the room has been on
+        # since turned on or since midnight, whichever came last
+
+        currentTime = datetime.now()
+        # Python community recommend a strategy of
+        # "easier to ask for forgiveness than permission"
+        # https://stackoverflow.com/a/610923/13180763
+        try:
+            lastOn = datetime.strptime(
+                self.sensor_attr["last_turned_on"], DATETIME_FORMAT
+            )
+        except KeyError:
+            lastOn = currentTime
+            self.lg(
+                "Trying to get the time the room has been on but there is no record of it being turned on",
+                level=logging.DEBUG,
+            )
+
+        # If last_turned_on was yesterday, record from midnight
+        today = date.today()
+        lastOnDate = date(lastOn.year, lastOn.month, lastOn.day)
+        if today != lastOnDate:
+            lastOn = datetime(today.year, today.month, today.day, 0, 0, 0)
+
+        return int(datetime.timestamp(currentTime)) - int(datetime.timestamp(lastOn))
 
     def seconds_to_time(self, total, includeDays=False):
         if includeDays:
