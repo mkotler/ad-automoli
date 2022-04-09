@@ -533,7 +533,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
                     )
                 )
                 # assume any lights that are currently on were switched on by AutoMoLi
-                if self.get_state(light) == "on":
+                if self.get_state(light, copy=False) == "on":
                     self._switched_on_by_automoli.add(light)
                     at_least_one_turned_on = True
 
@@ -637,7 +637,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 action_done = "set"
 
                 if self.transition_on_daytime_switch and any(
-                    [self.get_state(light) == "on" for light in self.lights]
+                    [self.get_state(light, copy=False) == "on" for light in self.lights]
                 ):
                     self.lights_on(source="daytime change", force=True)
                     action_done = "activated"
@@ -671,7 +671,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
 
         if all(
             [
-                self.get_state(sensor) in states
+                self.get_state(sensor, copy=False) in states
                 for sensor in self.sensors[EntityType.MOTION.idx]
             ]
         ):
@@ -734,7 +734,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
 
         # turn on the lights if not all are already on
         if self.dimming or not all(
-            [self.get_state(light) == "on" for light in self.lights]
+            [self.get_state(light, copy=False) == "on" for light in self.lights]
         ):
             self.lg(
                 f"{stack()[0][3]}: switching on | {self.dimming = }",
@@ -826,7 +826,12 @@ class AutoMoLi(hass.Hass):  # type: ignore
             # when all of the lights have been turned off then
             # cancel scheduled callbacks and update stats to set room off
             # otherwise don't do anything, regular delay should turn other lights off
-            if all([self.get_state(light) == "off" for light in filtered_lights]):
+            if all(
+                [
+                    self.get_state(light, copy=False) == "off"
+                    for light in filtered_lights
+                ]
+            ):
                 self.clear_handles()
                 self.lg(
                     f"{stack()[0][3]}: handles cleared and cancelled all scheduled timers",
@@ -959,7 +964,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
     ) -> None:
         """override the time delay for turning off lights"""
         # only update the delay if any lights are on
-        if any([self.get_state(light) == "on" for light in self.lights]):
+        if any([self.get_state(light, copy=False) == "on" for light in self.lights]):
             self.override_delay_active = True
             self.run_in(
                 self.update_room_stats,
@@ -972,7 +977,8 @@ class AutoMoLi(hass.Hass):  # type: ignore
 
     def night_mode_active(self) -> bool:
         return bool(
-            self.night_mode and self.get_state(self.night_mode["entity"]) == "on"
+            self.night_mode
+            and self.get_state(self.night_mode["entity"], copy=False) == "on"
         )
 
     def is_disabled(self) -> bool:
@@ -1089,7 +1095,9 @@ class AutoMoLi(hass.Hass):  # type: ignore
         if self.is_disabled() or self.is_blocked(onoff="off"):
             return
 
-        if not any([self.get_state(light) == "on" for light in self.lights]):
+        if not any(
+            [self.get_state(light, copy=False) == "on" for light in self.lights]
+        ):
             return
 
         dim_method: DimMethod
@@ -1199,7 +1207,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
             for sensor in self.sensors[EntityType.ILLUMINANCE.idx]:
                 self.lg(
                     f"{stack()[0][3]}: {self.thresholds.get(EntityType.ILLUMINANCE.idx) = } | "
-                    f"{float(self.get_state(sensor)) = }",  # type:ignore
+                    f"{float(self.get_state(sensor, copy=False)) = }",  # type:ignore
                     level=logging.DEBUG,
                 )
                 try:
@@ -1216,7 +1224,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
 
                 except ValueError as error:
                     self.lg(
-                        f"could not parse illuminance '{self.get_state(sensor)}' "
+                        f"could not parse illuminance '{self.get_state(sensor, copy=False)}' "
                         f"from '{sensor}': {error}"
                     )
                     return
@@ -1231,7 +1239,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
 
             # last check until we switch all the lights on... really!
             if not force and all(
-                [self.get_state(light) == "on" for light in self.lights]
+                [self.get_state(light, copy=False) == "on" for light in self.lights]
             ):
                 self.lg("¯\\_(ツ)_/¯")
                 return
@@ -1273,7 +1281,12 @@ class AutoMoLi(hass.Hass):  # type: ignore
         elif isinstance(light_setting, int):
 
             if light_setting == 0:
-                if all([self.get_state(entity) == "off" for entity in self.lights]):
+                if all(
+                    [
+                        self.get_state(entity, copy=False) == "off"
+                        for entity in self.lights
+                    ]
+                ):
                     self.lg(
                         "no lights turned on because current 'daytime' light setting is 0",
                         level=logging.DEBUG,
@@ -1284,7 +1297,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
             else:
                 # last check until we switch all the lights on... really!
                 if not force and all(
-                    [self.get_state(light) == "on" for light in self.lights]
+                    [self.get_state(light, copy=False) == "on" for light in self.lights]
                 ):
                     self.lg("¯\\_(ツ)_/¯")
                     return
@@ -1335,18 +1348,18 @@ class AutoMoLi(hass.Hass):  # type: ignore
 
         self.lg(
             f"{stack()[0][3]}: "
-            f"{any([self.get_state(entity) == 'on' for entity in self.lights]) = }"
+            f"{any([self.get_state(entity, copy=False) == 'on' for entity in self.lights]) = }"
             f" | {self.lights = }",
             level=logging.DEBUG,
         )
 
         # if any([self.get_state(entity) == "on" for entity in self.lights]):
-        if all([self.get_state(entity) == "off" for entity in self.lights]):
+        if all([self.get_state(entity, copy=False) == "off" for entity in self.lights]):
             return
 
         at_least_one_turned_off = False
         for entity in self.lights:
-            if self.get_state(entity) == "on":
+            if self.get_state(entity, copy=False) == "on":
                 if self.only_own_events:
                     if entity in self._switched_on_by_automoli:
                         self.call_service(
@@ -1458,7 +1471,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
         # turn off lights that are on and save those in self._warning_lights to turn back on
         at_least_one_turned_off = False
         for entity in self.lights:
-            if self.get_state(entity) == "on":
+            if self.get_state(entity, copy=False) == "on":
                 self._warning_lights.add(entity)
                 self.call_service(
                     "homeassistant/turn_off", entity_id=entity  # type:ignore
@@ -1824,7 +1837,9 @@ class AutoMoLi(hass.Hass):  # type: ignore
 
         self.sensor_state = (
             "on"
-            if any([self.get_state(entity) == "on" for entity in self.lights])
+            if any(
+                [self.get_state(entity, copy=False) == "on" for entity in self.lights]
+            )
             else "off"
         )
 
@@ -1854,7 +1869,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
 
         # If lights are on, check if they were last turned on automatically or manually
         # If a restart happened and reset is called, assume lights were turned on manually
-        if any([self.get_state(entity) == "on" for entity in self.lights]):
+        if any([self.get_state(entity, copy=False) == "on" for entity in self.lights]):
             self.sensor_state = "on"
             if len(self._switched_on_by_automoli) > 0:
                 self.sensor_attr["times_turned_on_automatically"] = 1
@@ -1886,7 +1901,9 @@ class AutoMoLi(hass.Hass):  # type: ignore
 
         self.sensor_state = (
             "on"
-            if any([self.get_state(entity) == "on" for entity in self.lights])
+            if any(
+                [self.get_state(entity, copy=False) == "on" for entity in self.lights]
+            )
             else "off"
         )
 
