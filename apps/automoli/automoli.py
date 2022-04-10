@@ -811,6 +811,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
         # Get all of the lights in the room besides the one that just changed
         filtered_lights = set(filter(lambda light: light != entity, self.lights))
 
+        how = "manually" if automation_name == "" else "automation"
         if state == "off":
             # when all of the lights have been turned off then
             # cancel scheduled callbacks and update stats to set room off
@@ -827,7 +828,11 @@ class AutoMoLi(hass.Hass):  # type: ignore
                     level=logging.DEBUG,
                 )
                 self.run_in(
-                    self.update_room_stats, 0, stat="lastOff", auto=False, source=source
+                    self.update_room_stats,
+                    0,
+                    stat="lastOff",
+                    howChanged=how,
+                    source=source,
                 )
             # if turned a light off manually, probably don't want AutoMoLi to immediately
             # turn it back on so start cooldown period
@@ -837,7 +842,11 @@ class AutoMoLi(hass.Hass):  # type: ignore
             # update stats to set room on when this is the first light turned on
             if self.sensor_state == "off":
                 self.run_in(
-                    self.update_room_stats, 0, stat="lastOn", auto=False, source=source
+                    self.update_room_stats,
+                    0,
+                    stat="lastOn",
+                    howChanged=how,
+                    source=source,
                 )
             # refresh timer if any lights turned on manually
             self.refresh_timer(refresh_type="outside_change")
@@ -1749,8 +1758,10 @@ class AutoMoLi(hass.Hass):  # type: ignore
     # "time_lights_on_today": Total time lights in the room have been on today
     # "last_turned_on": Last time room was turned on
     # "last_turned_off": Last time room was turned off
-    # "times_turned_on_automatically": Count of how many times AutoMoLi turned lights on
-    # "times_turned_off_automatically": Count of how many times AutoMoLi turned lights off
+    # "times_turned_on_by_automoli": Count of how many times AutoMoLi turned lights on
+    # "times_turned_off_by_automoli": Count of how many times AutoMoLi turned lights off
+    # "times_turned_on_by_automations": Count of how many times HomeAssistant automations turned lights on
+    # "times_turned_off_by_automations": Count of how many times HomeAssistant automations turned lights off
     # "times_turned_on_manually": Count of how many times lights were turned on manually
     # "times_turned_off_manually": Count of how many times lights were turned off manually
     # "turned_on_by": Source that caused lights/room to be turned on
@@ -1765,8 +1776,8 @@ class AutoMoLi(hass.Hass):  # type: ignore
     # "current_light_setting": Current % that the light will be turned on
     # "debug_message": Add attribute that logs last stat that was updated
     #
-    # Note: Manual/automatic counts can get out of sync if a room has multiple lights/switches
-    # because automatic changes will be counted once for all lights in the room, but manual changes
+    # Note: Manual/automoli counts can get out of sync if a room has multiple lights/switches
+    # because automoli changes will be counted once for all lights in the room, but manual changes
     # will be counted individually per light. Can avoid this problem by separating each switch into
     # its own room.
 
@@ -1817,17 +1828,33 @@ class AutoMoLi(hass.Hass):  # type: ignore
                     - datetime(1900, 1, 1)
                 ).total_seconds()
                 if (
-                    countAutoOn := self.get_state(
-                        self.entity_id, "times_turned_on_automatically", default=0
+                    countAutomoliOn := self.get_state(
+                        self.entity_id, "times_turned_on_by_automoli", default=0
                     )
                 ) != 0:
-                    self.sensor_attr["times_turned_on_automatically"] = countAutoOn
+                    self.sensor_attr["times_turned_on_by_automoli"] = countAutomoliOn
                 if (
-                    countAutoOff := self.get_state(
-                        self.entity_id, "times_turned_off_automatically", default=0
+                    countAutomoliOff := self.get_state(
+                        self.entity_id, "times_turned_off_by_automoli", default=0
                     )
                 ) != 0:
-                    self.sensor_attr["times_turned_off_automatically"] = countAutoOff
+                    self.sensor_attr["times_turned_off_by_automoli"] = countAutomoliOff
+                if (
+                    countAutomationOn := self.get_state(
+                        self.entity_id, "times_turned_on_by_automations", default=0
+                    )
+                ) != 0:
+                    self.sensor_attr[
+                        "times_turned_on_by_automations"
+                    ] = countAutomationOn
+                if (
+                    countAutomationOff := self.get_state(
+                        self.entity_id, "times_turned_off_by_automations", default=0
+                    )
+                ) != 0:
+                    self.sensor_attr[
+                        "times_turned_off_by_automations"
+                    ] = countAutomationOff
                 if (
                     countManualOn := self.get_state(
                         self.entity_id, "times_turned_on_manually", default=0
@@ -1873,22 +1900,26 @@ class AutoMoLi(hass.Hass):  # type: ignore
             self.sensor_onToday
         )
 
-        # If lights are on, check if they were last turned on automatically or manually
+        # If lights are on, check if they were last turned on by automoli or manually
         # If a restart happened and reset is called, assume lights were turned on manually
         if any([self.get_state(entity, copy=False) == "on" for entity in self.lights]):
             self.sensor_state = "on"
             if len(self._switched_on_by_automoli) > 0:
-                self.sensor_attr["times_turned_on_automatically"] = 1
+                self.sensor_attr["times_turned_on_by_automoli"] = 1
                 self.sensor_attr.pop("times_turned_on_manually", 0)
+                self.sensor_attr.pop("times_turned_on_by_automations", 0)
             else:
-                self.sensor_attr.pop("times_turned_on_automatically", 0)
+                self.sensor_attr.pop("times_turned_on_by_automoli", 0)
                 self.sensor_attr["times_turned_on_manually"] = 1
+                self.sensor_attr.pop("times_turned_on_by_automations", 0)
         else:
             self.sensor_state = "off"
-            self.sensor_attr.pop("times_turned_on_automatically", 0)
+            self.sensor_attr.pop("times_turned_on_by_automoli", 0)
+            self.sensor_attr.pop("times_turned_on_by_automations", 0)
             self.sensor_attr.pop("times_turned_on_manually", 0)
 
-        self.sensor_attr.pop("times_turned_off_automatically", 0)
+        self.sensor_attr.pop("times_turned_off_by_automoli", 0)
+        self.sensor_attr.pop("times_turned_off_by_automations", 0)
         self.sensor_attr.pop("times_turned_off_manually", 0)
 
         if self.track_room_stats:
@@ -1900,7 +1931,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
             )
 
     def update_room_stats(self, kwargs: dict[str, Any] | None = None):
-        kwargs.setdefault("auto", True)
+        howChanged = kwargs.get("howChanged", "automoli")
         stat = kwargs.get("stat", None)
         currentTime = datetime.now()
         currentTimeStr = currentTime.strftime(DATETIME_FORMAT)
@@ -1935,14 +1966,28 @@ class AutoMoLi(hass.Hass):  # type: ignore
 
             self.sensor_attr["last_turned_on"] = currentTimeStr
             self.sensor_attr.pop("last_turned_off", "")
-            countAutoOn = self.sensor_attr.get("times_turned_on_automatically", 0)
+            countAutomoliOn = self.sensor_attr.get("times_turned_on_by_automoli", 0)
+            countAutomationOn = self.sensor_attr.get(
+                "times_turned_on_by_automations", 0
+            )
             countManualOn = self.sensor_attr.get("times_turned_on_manually", 0)
-            if kwargs.get("auto"):
-                # do not update automatic count on reboot unless nothing has been counted
+            if howChanged == "automoli":
+                # do not update automoli count on reboot unless nothing has been counted
                 # then assume automoli turned it on
-                if not kwargs.get("appInit") or (countAutoOn + countManualOn == 0):
-                    self.sensor_attr["times_turned_on_automatically"] = countAutoOn + 1
-            else:
+                if not kwargs.get("appInit", False) or (
+                    countAutomoliOn + countAutomationOn + countManualOn == 0
+                ):
+                    self.sensor_attr["times_turned_on_by_automoli"] = (
+                        countAutomoliOn + 1
+                    )
+            elif howChanged == "automation":
+                self.sensor_attr["times_turned_on_by_automations"] = (
+                    countAutomationOn + 1
+                )
+                self.sensor_attr.pop("last_motion_detected", "")
+                self.sensor_attr.pop("last_motion_cleared", "")
+                self.sensor_attr.pop("last_motion_by", "")
+            elif howChanged == "manually":
                 self.sensor_attr["times_turned_on_manually"] = countManualOn + 1
                 self.sensor_attr.pop("last_motion_detected", "")
                 self.sensor_attr.pop("last_motion_cleared", "")
@@ -1971,10 +2016,19 @@ class AutoMoLi(hass.Hass):  # type: ignore
             self.sensor_attr["time_lights_on_today"] = self.seconds_to_time(
                 self.sensor_onToday
             )
-            if kwargs.get("auto"):
-                countAutoOff = self.sensor_attr.get("times_turned_off_automatically", 0)
-                self.sensor_attr["times_turned_off_automatically"] = countAutoOff + 1
-            else:
+            if howChanged == "automoli":
+                countAutomoliOff = self.sensor_attr.get(
+                    "times_turned_off_by_automoli", 0
+                )
+                self.sensor_attr["times_turned_off_by_automoli"] = countAutomoliOff + 1
+            elif howChanged == "automation":
+                countAutomationOff = self.sensor_attr.get(
+                    "times_turned_off_by_automations", 0
+                )
+                self.sensor_attr["times_turned_off_by_automations"] = (
+                    countAutomationOff + 1
+                )
+            elif howChanged == "manually":
                 countManualOff = self.sensor_attr.get("times_turned_off_manually", 0)
                 self.sensor_attr["times_turned_off_manually"] = countManualOff + 1
             source = kwargs.get("source", "<unknown>")
@@ -2073,23 +2127,42 @@ class AutoMoLi(hass.Hass):  # type: ignore
 
         if int(adjustedOnToday) != 0:
             # Print out the current stats
-            autoOn = self.sensor_attr.get("times_turned_on_automatically", 0)
+            automoliOn = self.sensor_attr.get("times_turned_on_by_automoli", 0)
+            automationOn = self.sensor_attr.get("times_turned_on_by_automations", 0)
+            automationOff = self.sensor_attr.get("times_turned_off_by_automations", 0)
             manualOn = self.sensor_attr.get("times_turned_on_manually", 0)
             manualOff = self.sensor_attr.get("times_turned_off_manually", 0)
-            totalOn = autoOn + manualOn
+            totalOn = automoliOn + automationOn + manualOn
             self.lg(
                 f"{hl(self.room_name.replace('_',' ').title())} was turned on "
                 f"{totalOn} time(s) for a total of {self.seconds_to_time(adjustedOnToday)} today"
             )
-            if manualOn > 0:
+            if automationOn > 0 or manualOn > 0:
+                message = ""
+                if automationOn > 0:
+                    message = (
+                        message
+                        + f"by automations {automationOn} time(s) "
+                        + f"{'and ' if manualOn > 0 else ''}"
+                    )
+                if manualOn > 0:
+                    message = message + f"manually {manualOn} time(s)"
+
                 self.lg(
-                    f"{hl(self.room_name.replace('_',' ').title())} "
-                    f"was turned on manually {manualOn} time(s)"
+                    f"{hl(self.room_name.replace('_',' ').title())} was turned on {message}"
                 )
-            if manualOff > 0:
+            if automationOff > 0 or manualOff > 0:
+                message = ""
+                if automationOff > 0:
+                    message = (
+                        message
+                        + f"by automations {automationOff} time(s) "
+                        + f"{'and ' if manualOff > 0 else ''}"
+                    )
+                if manualOff > 0:
+                    message = message + f"manually {manualOff} time(s)"
                 self.lg(
-                    f"{hl(self.room_name.replace('_',' ').title())} "
-                    f"was turned off manually {manualOff} time(s)"
+                    f"{hl(self.room_name.replace('_',' ').title())} was turned off {message}"
                 )
 
     def _get_adjusted_time_on(self) -> int:
