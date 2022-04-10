@@ -535,16 +535,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 # assume any lights that are currently on were switched on by AutoMoLi
                 if self.get_state(light, copy=False) == "on":
                     self._switched_on_by_automoli.add(light)
-                    at_least_one_turned_on = True
 
-            if at_least_one_turned_on:
-                self.run_in(
-                    self.update_room_stats,
-                    0,
-                    stat="lastOn",
-                    appInit=True,
-                    source="On at restart",
-                )
         # Track if within cooling down period
         self.cooling_down: bool = False
         self.cooling_down_handle: str | None = None
@@ -608,7 +599,15 @@ class AutoMoLi(hass.Hass):  # type: ignore
         # show parsed config
         self.show_info(self.args)
 
-        self.refresh_timer()
+        if any([self.get_state(light, copy=False) == "on" for light in self.lights]):
+            self.run_in(
+                self.update_room_stats,
+                0,
+                stat="lastOn",
+                appInit=True,
+                source="On at restart",
+            )
+            self.refresh_timer()
 
     def switch_daytime(self, kwargs: dict[str, Any]) -> None:
         """Set new light settings according to daytime."""
@@ -712,7 +711,8 @@ class AutoMoLi(hass.Hass):  # type: ignore
     def motion_event(self, event: str, data: dict[str, str], _: dict[str, Any]) -> None:
         """Main handler for motion events."""
 
-        # Record motion happened in log and sensor even if blocked/disabled
+        # Process motion event even if AutoMoLi is currently blocked/disabled
+        # is_blocked and is_disabled checked during lights_on and lights_off calls
         motion_trigger = data["entity_id"].replace(EntityType.MOTION.prefix, "")
         self.run_in(self.update_room_stats, 0, stat="motion", entity=motion_trigger)
         self.lg(
@@ -720,17 +720,6 @@ class AutoMoLi(hass.Hass):  # type: ignore
             f"'{motion_trigger}' | {self.dimming = }",
             level=logging.DEBUG,
         )
-
-        # check if automoli is disabled via home assistant entity
-        # check logging level here first to avoid duplicate log entries when not debug logging
-        if logging.DEBUG >= self.loglevel:
-            self.lg(
-                f"{stack()[0][3]}: {self.is_disabled() = } | {self.is_blocked(onoff='on') = } | {self.dimming = }",
-                level=logging.DEBUG,
-            )
-
-        if self.is_disabled() or self.is_blocked(onoff="on"):
-            return
 
         # turn on the lights if not all are already on
         if self.dimming or not all(
@@ -981,12 +970,15 @@ class AutoMoLi(hass.Hass):  # type: ignore
             and self.get_state(self.night_mode["entity"], copy=False) == "on"
         )
 
-    def is_disabled(self) -> bool:
+    def is_disabled(self, onoff: str = None) -> bool:
         """check if automoli is disabled via home assistant entity"""
         for entity in self.disable_switch_entities:
             if (
                 state := self.get_state(entity, copy=False)
             ) and state in self.disable_switch_states:
+                # Refresh timer if disabling lights from turning off
+                if onoff == "off":
+                    self.refresh_timer()
                 # Only log first time disabled
                 if self.sensor_attr.get("disabled_by", "") == "":
                     self.lg(
@@ -997,6 +989,8 @@ class AutoMoLi(hass.Hass):  # type: ignore
 
         # or because currently in cooldown period after an outside change
         if self.cooling_down:
+            # Do not need to refresh timer because cooling_down currently
+            # only disables lights turning on
             self.lg(f"{APP_NAME} is disabled during cooldown period")
             self.run_in(
                 self.update_room_stats, 0, stat="disabled", entity="Cooling down"
@@ -1029,7 +1023,6 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 )
 
                 if current_humidity >= humidity_threshold:
-
                     self.refresh_timer()
                     # Only log first time blocked
                     if self.sensor_attr.get("blocked_off_by", "") == "":
@@ -1050,7 +1043,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 if (
                     state := self.get_state(entity, copy=False)
                 ) and state in self.block_on_switch_states:
-                    self.refresh_timer()
+                    # Do not need to refresh timer when blocking lights turning on
                     # Only log first time blocked
                     if self.sensor_attr.get("blocked_on_by", "") == "":
                         self.lg(
@@ -1087,12 +1080,12 @@ class AutoMoLi(hass.Hass):  # type: ignore
         # check logging level here first to avoid duplicate log entries when not debug logging
         if logging.DEBUG >= self.loglevel:
             self.lg(
-                f"{stack()[0][3]}: {self.is_disabled() = } | {self.is_blocked(onoff='off') = }",
+                f"{stack()[0][3]}: {self.is_disabled(onoff='off') = } | {self.is_blocked(onoff='off') = }",
                 level=logging.DEBUG,
             )
 
         # check if automoli is disabled via home assistant entity or blockers like the "shower case"
-        if self.is_disabled() or self.is_blocked(onoff="off"):
+        if self.is_disabled(onoff="off") or self.is_blocked(onoff="off"):
             return
 
         if not any(
@@ -1189,6 +1182,17 @@ class AutoMoLi(hass.Hass):  # type: ignore
 
     def lights_on(self, source: str = "<unknown>", force: bool = False) -> None:
         """Turn on the lights."""
+
+        # check logging level here first to avoid duplicate log entries when not debug logging
+        if logging.DEBUG >= self.loglevel:
+            self.lg(
+                f"{stack()[0][3]}: {self.is_disabled(onoff='on') = } | {self.is_blocked(onoff='on') = } | {self.dimming = }",
+                level=logging.DEBUG,
+            )
+
+        # check if automoli is disabled via home assistant entity or blockers
+        if self.is_disabled(onoff="on") or self.is_blocked(onoff="on"):
+            return
 
         self.lg(
             f"{stack()[0][3]}: {self.thresholds.get(EntityType.ILLUMINANCE.idx) = }"
@@ -1335,12 +1339,12 @@ class AutoMoLi(hass.Hass):  # type: ignore
         # check logging level here first to avoid duplicate log entries when not debug logging
         if logging.DEBUG >= self.loglevel:
             self.lg(
-                f"{stack()[0][3]}: {self.is_disabled() = } | {self.is_blocked(onoff='off') = }",
+                f"{stack()[0][3]}: {self.is_disabled(onoff='off') = } | {self.is_blocked(onoff='off') = }",
                 level=logging.DEBUG,
             )
 
         # check if automoli is disabled via home assistant entity or blockers like the "shower case"
-        if self.is_disabled() or self.is_blocked(onoff="off"):
+        if self.is_disabled(onoff="off") or self.is_blocked(onoff="off"):
             return
 
         # cancel scheduled callbacks
@@ -1459,7 +1463,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
     def warning_flash_off(self, _: dict[str, Any] | None = None) -> None:
         # check if automoli is disabled via home assistant entity or blockers like the "shower case"
         # if so then don't do the warning flash
-        if self.is_disabled() or self.is_blocked(onoff="off"):
+        if self.is_disabled(onoff="off") or self.is_blocked(onoff="off"):
             return
 
         self.lg(
@@ -1993,8 +1997,6 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 )
             else:
                 self.sensor_attr.pop("turning_off_at", "")
-            self.sensor_attr.pop("blocked_off_by", "")
-            self.sensor_attr.pop("disabled_by", "")
 
         elif stat == "switchDaytime":
             light_setting = (
@@ -2009,14 +2011,12 @@ class AutoMoLi(hass.Hass):  # type: ignore
 
         elif stat == "blockedOff":
             self.sensor_attr["blocked_off_by"] = self.get_name(kwargs.get("entity"))
-            self.sensor_attr.pop("turning_off_at", "")
 
         elif stat == "disabled":
             if self.entity_exists(entity := kwargs.get("entity")):
                 self.sensor_attr["disabled_by"] = self.get_name(entity)
             else:
                 self.sensor_attr["disabled_by"] = entity
-            self.sensor_attr.pop("turning_off_at", "")
 
         # If the room is still on, record all the time it was on until now
         if self.sensor_state == "on":
