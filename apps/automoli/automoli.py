@@ -1753,6 +1753,8 @@ class AutoMoLi(hass.Hass):  # type: ignore
     # "times_turned_off_automatically": Count of how many times AutoMoLi turned lights off
     # "times_turned_on_manually": Count of how many times lights were turned on manually
     # "times_turned_off_manually": Count of how many times lights were turned off manually
+    # "turned_on_by": Source that caused lights/room to be turned on
+    # "turned_off_by": Source that caused lights/room to be turned off
     # "last_motion_detected": Last time motion was detected
     # "last_motion_by": Entity from which motion detected
     # "turning_off_at": Room will be turned off at this time
