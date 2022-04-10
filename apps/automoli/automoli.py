@@ -927,7 +927,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 dim_in_sec = int(delay) - self.dim["seconds_before"]
                 self.lg(f"{fnn} {dim_in_sec = }", level=logging.DEBUG)
 
-                handle = self.run_in(self.dim_lights, dim_in_sec)
+                handle = self.run_in(self.dim_lights, dim_in_sec, timeDelay=delay)
 
             else:
                 handle = self.run_in(self.lights_off, delay, timeDelay=delay)
@@ -1082,7 +1082,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
                     return True
         return False
 
-    def dim_lights(self, _: Any) -> None:
+    def dim_lights(self, kwargs: dict[str, Any]) -> None:
 
         message: str = ""
 
@@ -1133,7 +1133,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 dim_attributes = {"transition": int(seconds_before)}
                 message = (
                     f"{hl(self.room.name.replace('_',' ').title())} → transition to "
-                    f"{hl('off')} ({natural_time(seconds_before)})"
+                    f"{hl('off')} in ({natural_time(seconds_before)})"
                 )
 
             self.dimming = True
@@ -1175,7 +1175,12 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 )
             )
 
-        self.run_in(self.update_room_stats, 0, stat="lastOff", source="Dimming")
+        delay = kwargs.get("timeDelay", 0)
+        timeSinceMotion = (
+            (natural_time(int(delay))).replace("\033[1m", "").replace("\033[0m", "")
+        )
+        source = f"No motion for {timeSinceMotion}, dimming lights"
+        self.run_in(self.update_room_stats, 0, stat="lastOff", source=source)
         self.lg(message, icon=OFF_ICON)
 
     def turn_off_lights(self, kwargs: dict[str, Any]) -> None:
@@ -1186,7 +1191,6 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 if light in self._switched_on_by_automoli:
                     self._switched_on_by_automoli.remove(light)
                 self._switched_off_by_automoli.add(light)
-                at_least_one_turned_off = True
             self.run_in(self.turned_off, 0)
 
     def lights_on(self, source: str = "<unknown>", force: bool = False) -> None:
