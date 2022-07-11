@@ -794,7 +794,13 @@ class AutoMoLi(hass.Hass):  # type: ignore
                     "friendly_name"
                 )
         if automation_name == "":
-            self.lg(f"{hl(self.get_name(entity))} was turned '{state}' manually")
+            if old_state == "on" or old_state == "off":
+                self.lg(f"{hl(self.get_name(entity))} was turned '{state}' manually")
+            # otherwise handle case when state was "unavailable" or "unknown"
+            else:
+                self.lg(
+                    f"{hl(self.get_name(entity))} changed to '{state}' from {old_state}"
+                )
             source = "Manually"
         else:
             self.lg(
