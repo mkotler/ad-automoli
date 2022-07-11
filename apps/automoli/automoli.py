@@ -765,7 +765,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
         # Check if got entire state object
         if attribute == "all":
             state = dict(new).get("state")
-            old_state = dict(old).get("state")
+            old_state = dict(old).get("state", "unknown")
             context_id = dict(dict(new).get("context")).get("id")
 
         # ensure the change wasn't because of automoli
