@@ -1009,44 +1009,6 @@ class AutoMoLi(hass.Hass):  # type: ignore
         return False
 
     def is_blocked(self, onoff: str = None) -> bool:
-
-        # the "shower case"
-        if humidity_threshold := self.thresholds.get("humidity"):
-
-            for sensor in self.sensors[EntityType.HUMIDITY.idx]:
-                try:
-                    current_humidity = float(
-                        self.get_state(sensor)  # type:ignore
-                    )
-                except ValueError as error:
-                    self.lg(
-                        f"self.get_state(sensor) raised a ValueError for {sensor}: {error}",
-                        level=logging.ERROR,
-                    )
-                    continue
-
-                self.lg(
-                    f"{stack()[0][3]}: {current_humidity = } >= {humidity_threshold = } "
-                    f"= {current_humidity >= humidity_threshold}",
-                    level=logging.DEBUG,
-                )
-
-                if current_humidity >= humidity_threshold:
-                    self.refresh_timer()
-                    # Only log first time blocked
-                    if self.sensor_attr.get("blocked_off_by", "") == "":
-                        self.lg(
-                            f"🛁 No motion in {hl(self.room.name.replace('_',' ').title())} since "
-                            f"{hl(natural_time(int(self.active['delay'])))} → "
-                            f"but {hl(current_humidity)}%RH > "
-                            f"{hl(humidity_threshold)}%RH"
-                        )
-                    self.run_in(
-                        self.update_room_stats, 0, stat="blockedOff", entity=sensor
-                    )
-                    return True
-
-        # other blocked entitites
         if onoff == "on":
             for entity in self.block_on_switch_entities:
                 if (
@@ -1064,6 +1026,41 @@ class AutoMoLi(hass.Hass):  # type: ignore
                     )
                     return True
         elif onoff == "off":
+            # the "shower case"
+            if humidity_threshold := self.thresholds.get("humidity"):
+                for sensor in self.sensors[EntityType.HUMIDITY.idx]:
+                    try:
+                        current_humidity = float(
+                            self.get_state(sensor)  # type:ignore
+                        )
+                    except ValueError as error:
+                        self.lg(
+                            f"self.get_state(sensor) raised a ValueError for {sensor}: {error}",
+                            level=logging.ERROR,
+                        )
+                        continue
+
+                    self.lg(
+                        f"{stack()[0][3]}: {current_humidity = } >= {humidity_threshold = } "
+                        f"= {current_humidity >= humidity_threshold}",
+                        level=logging.DEBUG,
+                    )
+
+                    if current_humidity >= humidity_threshold:
+                        self.refresh_timer()
+                        # Only log first time blocked
+                        if self.sensor_attr.get("blocked_off_by", "") == "":
+                            self.lg(
+                                f"🛁 No motion in {hl(self.room.name.replace('_',' ').title())} since "
+                                f"{hl(natural_time(int(self.active['delay'])))} → "
+                                f"but {hl(current_humidity)}%RH > "
+                                f"{hl(humidity_threshold)}%RH"
+                            )
+                        self.run_in(
+                            self.update_room_stats, 0, stat="blockedOff", entity=sensor
+                        )
+                        return True
+            # other entities
             for entity in self.block_off_switch_entities:
                 if (
                     state := self.get_state(entity, copy=False)
