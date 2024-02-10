@@ -20,7 +20,7 @@ from typing import Any
 import hassapi as hass
 import adbase as ad
 
-__version__ = "0.11.3"
+__version__ = "0.11.4"
 
 APP_NAME = "AutoMoLi"
 APP_ICON = "💡"
@@ -1588,7 +1588,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 starttime = str(daytime.get("starttime"))
                 if starttime.count(":") == 1:
                     starttime += ":00"
-                dt_start = (self.parse_time(starttime, aware=True)).replace(
+                dt_start = (self.parse_time(starttime)).replace(
                     microsecond=0
                 )
                 daytime["starttime"] = dt_start
@@ -1615,7 +1615,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 if next_starttime.count(":") == 1:
                     next_starttime += ":00"
                 next_dt_name = str(daytimes[(idx + 1) % len(daytimes)].get("name"))
-                next_dt_start = (self.parse_time(next_starttime, aware=True)).replace(
+                next_dt_start = (self.parse_time(next_starttime)).replace(
                     microsecond=0
                 )
             except ValueError as error:
