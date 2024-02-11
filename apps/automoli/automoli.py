@@ -186,6 +186,19 @@ class AutoMoLi(hass.Hass):  # type: ignore
                     entity_id=self.entity_id,  # type:ignore
                 )
 
+    # Methods called by run_in can only have kwargs but cannot update self.lg
+    # because *args and **kwargs are required for AppDaemon's self.log method
+    def lg_delayed(self, kwargs: dict[str, Any] | None = None) -> None:
+        kwargs.setdefault("ascii_encode", False)
+        msg = kwargs.get("msg", "")
+        level = kwargs.get("level", None)
+        icon = kwargs.get("icon", None)
+        repeat = kwargs.get("repeat", 1)
+        log_to_ha = kwargs.get("log_to_ha", False)
+        self.lg(
+            msg=f"{msg}", level=level, icon=icon, repeat=repeat, log_to_ha=log_to_ha
+        )
+
     def listr(
         self,
         list_or_string: list[str] | set[str] | str | Any,
@@ -608,6 +621,20 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 appInit=True,
                 source="On at restart",
             )
+
+            light_setting = (
+                self.active.get("light_setting")
+                if not self.night_mode_active()
+                else self.night_mode.get("light")
+            )
+            message = (
+                f"{hl(self.room.name.replace('_',' ').title())} was {hl('on')} when AutoMoLi started → "
+                f"brightness: {hl(light_setting)}%"
+                f" | delay: {hl(natural_time(int(self.active['delay'])))}"
+            )
+            # Since in initialization loop, wait 10s for all rooms to load before logging
+            self.run_in(self.lg_delayed, 10, msg=message, icon=ON_ICON)
+
             self.refresh_timer()
         else:
             self.run_in(
@@ -947,11 +974,11 @@ class AutoMoLi(hass.Hass):  # type: ignore
 
         # if an external event (e.g., switch turned on manually) was detected use delay_outside_events
         if refresh_type == "outside_change":
-            delay = self.delay_outside_events
+            delay = int(self.delay_outside_events)
         elif refresh_type == "override_delay":
-            delay = self.override_delay
+            delay = int(self.override_delay)
         else:
-            delay = self.active.get("delay")
+            delay = int(self.active["delay"])
 
         # if no delay is set or delay = 0, lights will not switched off by AutoMoLi
         if delay:
@@ -1988,7 +2015,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
             self.sensor_attr["last_motion_detected"] = currentTimeStr
             self.sensor_attr["last_motion_by"] = self.get_name(kwargs.get("entity"))
             self.sensor_attr.pop("last_motion_cleared", "")
-            self.sensor_attr.pop("turning_off_at", "")
+            self.sensor_attr["turning_off_at"] = "Waiting for motion to clear"
 
         elif stat == "motion_cleared":
             self.sensor_attr["last_motion_cleared"] = currentTimeStr
