@@ -658,6 +658,19 @@ class AutoMoLi(hass.Hass):  # type: ignore
         schedules the callback to switch the lights off after a `state_changed` callback
         of a motion sensors changing to "cleared" is received
         """
+        state = new
+        old_state = old
+        # Check if got entire state object
+        if attribute == "all":
+            state = dict(new).get("state")
+            old_state = dict(old).get("state", "unknown")
+
+        # do not process if state has changed from off to unavailable or unknown (or vice versa)
+        # or if state has not actually changed (new == old)
+        if ((state in ("unavailable", "unknown") and old_state == self.states["motion_off"]) or
+            (state == self.states["motion_off"] and old_state in ("unavailable", "unknown")) or
+            state == old_state):
+            return
 
         # start the timer if motion is cleared
         self.lg(
@@ -665,7 +678,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
             level=logging.DEBUG,
         )
 
-        # Handle case when motion sensor may be unknown or unavailable
+        # Handle case when motion sensor went from "on" to unknown or unavailable
         states = {self.states["motion_off"], "unknown", "unavailable"}
 
         if all(
@@ -842,8 +855,9 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 )
             # if turned a light off manually, probably don't want AutoMoLi to immediately
             # turn it back on so start cooldown period
-            self.cooling_down = True
-            self.cooling_down_handle = self.run_in(self.cooldown_off, DEFAULT_COOLDOWN)
+            if old_state == "on":
+                self.cooling_down = True
+                self.cooling_down_handle = self.run_in(self.cooldown_off, DEFAULT_COOLDOWN)
         elif state == "on":
             # update stats to set room on when this is the first light turned on
             if self.sensor_state == "off":
@@ -1588,7 +1602,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 starttime = str(daytime.get("starttime"))
                 if starttime.count(":") == 1:
                     starttime += ":00"
-                dt_start = (self.parse_time(starttime, aware=True)).replace(
+                dt_start = (self.parse_time(starttime)).replace(
                     microsecond=0
                 )
                 daytime["starttime"] = dt_start
@@ -1615,7 +1629,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 if next_starttime.count(":") == 1:
                     next_starttime += ":00"
                 next_dt_name = str(daytimes[(idx + 1) % len(daytimes)].get("name"))
-                next_dt_start = (self.parse_time(next_starttime, aware=True)).replace(
+                next_dt_start = (self.parse_time(next_starttime)).replace(
                     microsecond=0
                 )
             except ValueError as error:
