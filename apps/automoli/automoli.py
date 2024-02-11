@@ -213,7 +213,8 @@ class AutoMoLi(hass.Hass):  # type: ignore
         default: Any,
     ) -> Any:
         """Get configuration options from the current app if they exist but if not fall back
-        to any options defined in an app named 'default' or worst case to a default value passed in"""
+        to any options defined in an app named 'default' or worst case to a default value passed in
+        """
         if name in self.args:
             return self.args.pop(name)
         elif (
@@ -667,9 +668,17 @@ class AutoMoLi(hass.Hass):  # type: ignore
 
         # do not process if state has changed from off to unavailable or unknown (or vice versa)
         # or if state has not actually changed (new == old)
-        if ((state in ("unavailable", "unknown") and old_state == self.states["motion_off"]) or
-            (state == self.states["motion_off"] and old_state in ("unavailable", "unknown")) or
-            state == old_state):
+        if (
+            (
+                state in ("unavailable", "unknown")
+                and old_state == self.states["motion_off"]
+            )
+            or (
+                state == self.states["motion_off"]
+                and old_state in ("unavailable", "unknown")
+            )
+            or state == old_state
+        ):
             return
 
         # start the timer if motion is cleared
@@ -857,7 +866,9 @@ class AutoMoLi(hass.Hass):  # type: ignore
             # turn it back on so start cooldown period
             if old_state == "on":
                 self.cooling_down = True
-                self.cooling_down_handle = self.run_in(self.cooldown_off, DEFAULT_COOLDOWN)
+                self.cooling_down_handle = self.run_in(
+                    self.cooldown_off, DEFAULT_COOLDOWN
+                )
         elif state == "on":
             # update stats to set room on when this is the first light turned on
             if self.sensor_state == "off":
@@ -1602,9 +1613,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 starttime = str(daytime.get("starttime"))
                 if starttime.count(":") == 1:
                     starttime += ":00"
-                dt_start = (self.parse_time(starttime)).replace(
-                    microsecond=0
-                )
+                dt_start = (self.parse_time(starttime)).replace(microsecond=0)
                 daytime["starttime"] = dt_start
             except ValueError as error:
                 raise ValueError(
@@ -1629,9 +1638,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 if next_starttime.count(":") == 1:
                     next_starttime += ":00"
                 next_dt_name = str(daytimes[(idx + 1) % len(daytimes)].get("name"))
-                next_dt_start = (self.parse_time(next_starttime)).replace(
-                    microsecond=0
-                )
+                next_dt_start = (self.parse_time(next_starttime)).replace(microsecond=0)
             except ValueError as error:
                 raise ValueError(
                     f"missing start time in daytime '{next_dt_name}': {error}"
@@ -1865,17 +1872,17 @@ class AutoMoLi(hass.Hass):  # type: ignore
                         self.entity_id, "times_turned_on_by_automations", default=0
                     )
                 ) != 0:
-                    self.sensor_attr[
-                        "times_turned_on_by_automations"
-                    ] = countAutomationOn
+                    self.sensor_attr["times_turned_on_by_automations"] = (
+                        countAutomationOn
+                    )
                 if (
                     countAutomationOff := self.get_state(
                         self.entity_id, "times_turned_off_by_automations", default=0
                     )
                 ) != 0:
-                    self.sensor_attr[
-                        "times_turned_off_by_automations"
-                    ] = countAutomationOff
+                    self.sensor_attr["times_turned_off_by_automations"] = (
+                        countAutomationOff
+                    )
                 if (
                     countManualOn := self.get_state(
                         self.entity_id, "times_turned_on_manually", default=0
