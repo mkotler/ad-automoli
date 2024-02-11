@@ -609,6 +609,14 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 source="On at restart",
             )
             self.refresh_timer()
+        else:
+            self.run_in(
+                self.update_room_stats,
+                0,
+                stat="lastOff",
+                appInit=True,
+                source="Off at restart",
+            )
 
     def switch_daytime(self, kwargs: dict[str, Any]) -> None:
         """Set new light settings according to daytime."""
@@ -1993,7 +2001,6 @@ class AutoMoLi(hass.Hass):  # type: ignore
             self.sensor_state = "on"
 
             self.sensor_attr["last_turned_on"] = currentTimeStr
-            self.sensor_attr.pop("last_turned_off", "")
             countAutomoliOn = self.sensor_attr.get("times_turned_on_by_automoli", 0)
             countAutomationOn = self.sensor_attr.get(
                 "times_turned_on_by_automations", 0
@@ -2021,8 +2028,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 self.sensor_attr.pop("last_motion_cleared", "")
                 self.sensor_attr.pop("last_motion_by", "")
             source = kwargs.get("source", "<unknown>")
-            self.sensor_attr["turned_on_by"] = source
-            self.sensor_attr.pop("turned_off_by", "")
+            self.sensor_attr["last_turned_on_by"] = source
             self.sensor_attr.pop("delay_overridden_by", "")
             self.sensor_attr.pop("blocked_on_by", "")
             self.sensor_attr.pop("disabled_by", "")
@@ -2045,10 +2051,14 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 self.sensor_onToday
             )
             if howChanged == "automoli":
-                countAutomoliOff = self.sensor_attr.get(
-                    "times_turned_off_by_automoli", 0
-                )
-                self.sensor_attr["times_turned_off_by_automoli"] = countAutomoliOff + 1
+                # do not update automoli count on reboot
+                if not kwargs.get("appInit", False):
+                    countAutomoliOff = self.sensor_attr.get(
+                        "times_turned_off_by_automoli", 0
+                    )
+                    self.sensor_attr["times_turned_off_by_automoli"] = (
+                        countAutomoliOff + 1
+                    )
             elif howChanged == "automation":
                 countAutomationOff = self.sensor_attr.get(
                     "times_turned_off_by_automations", 0
@@ -2060,8 +2070,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 countManualOff = self.sensor_attr.get("times_turned_off_manually", 0)
                 self.sensor_attr["times_turned_off_manually"] = countManualOff + 1
             source = kwargs.get("source", "<unknown>")
-            self.sensor_attr["turned_off_by"] = source
-            self.sensor_attr.pop("turned_on_by", "")
+            self.sensor_attr["last_turned_off_by"] = source
             self.sensor_attr.pop("turning_off_at", "")
             self.sensor_attr.pop("blocked_off_by", "")
             self.sensor_attr.pop("disabled_by", "")
