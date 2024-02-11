@@ -101,7 +101,7 @@ bathroom:
   motion_state_off: "off"
   daytimes:
     - { starttime: "05:30", name: morning, light: 45 }
-    - { starttime: "07:30", name: day, light: "Day" }
+    - { starttime: "07:30", name: day, light: "scene.bathroom_day" }
     - { starttime: "20:30", name: evening, light: 100 }
     - { starttime: "sunset+01:00", name: night, light: 0 }
 
@@ -127,7 +127,7 @@ For the auto-discovery of your lights and sensors to work, AutoMoLi expects moti
 * *binary_sensor.motion_sensor_`room`_something*
 * *light.`room`*
 
-AutoMoLi will detect them automatically. Manually configured entities will take precedence.
+AutoMoLi will detect them automatically. Manually configured entities will take precedence, but **need** to follow the naming scheme above.
 
 ## Basic Configuration Options
 
