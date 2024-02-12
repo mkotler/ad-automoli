@@ -1,10 +1,13 @@
-# [![automoli](https://socialify.git.ci/benleb/ad-automoli/image?description=1&font=KoHo&forks=1&language=1&logo=https%3A%2F%2Femojipedia-us.s3.dualstack.us-west-1.amazonaws.com%2Fthumbs%2F240%2Fapple%2F237%2Felectric-light-bulb_1f4a1.png&owner=1&pulls=1&stargazers=1&theme=Light)](https://github.com/benleb/ad-automoli)
+# [![automoli](https://socialify.git.ci/mkotler/ad-automoli/image?description=0&font=KoHo&forks=1&language=1&logo=https%3A%2F%2Femojipedia-us.s3.dualstack.us-west-1.amazonaws.com%2Fthumbs%2F240%2Fapple%2F237%2Felectric-light-bulb_1f4a1.png&owner=0&pulls=1&stargazers=1&theme=Light)](https://github.com/mkotler/ad-automoli)
 
 <!-- # AutoMoLi - **Auto**matic **Mo**tion **Li**ghts -->
 
-<!-- [![python_badge](https://img.shields.io/static/v1?label=python&message=3.8%20|%203.9&color=blue&style=flat)](https://www.python.org) [![hacs_badge](https://img.shields.io/badge/HACS-Default-orange.svg)](https://github.com/hacs/integration) -->
+## Acknowledgment
+Many thanks to **Ben Lebherz** ([@benleb](https://github.com/benleb) | [@ben_leb](https://twitter.com/ben_leb)) for the initial idea and implementation of [**AutoMoLi**](https://github.com/benleb/ad-automoli). This version has diverged significantly from the original including a number of additional features. However, I have kept the name in recognition of that starting point.      
 
-Fully *automatic light management* based on motion as [AppDaemon](https://github.com/home-assistant/appdaemon) app.  
+## Description
+
+#### Fully *automatic light management* based on conditions like motion, humidity, and more as an [AppDaemon](https://github.com/home-assistant/appdaemon) app.
 
 🕓 multiple **daytimes** to define different scenes for morning, noon, ...  
 💡 supports **Hue** (for Hue Rooms/Groups) & **Home Assistant** scenes  
@@ -16,40 +19,13 @@ Fully *automatic light management* based on motion as [AppDaemon](https://github
 
 ## Getting Started
 
-### Docker Image (`amd64`, `arm` and `arm64`)
-
-You can try [**AutoMoLi**](https://github.com/benleb/ad-automoli) via [Docker](https://hub.docker.com/r/benleb/automoli) without installing anything! The Image is the default [AppDaemon](https://github.com/AppDaemon/appdaemon) one with AutoMoLi and a simple default configuration added. See the [AppDaemon Docker Tutorial](https://appdaemon.readthedocs.io/en/latest/DOCKER_TUTORIAL.html) on how to use it in general.  
-
-[**AutoMoLi**](https://github.com/benleb/ad-automoli) expects motion sensors and lights including a `room` name. The exact patterns are listed in [Auto-Discovery of Lights and Sensors](https://github.com/benleb/ad-automoli#auto-discovery-of-lights-and-sensors) You can set a `room` with the **AUTOMOLI_ROOM** variable in the Docker *run* command.
-
-```bash
-docker run --rm --interactive --tty --name AutoMoLi \
---env HA_URL="<HA URL>" \
---env TOKEN="<HA Token>" \
---env AUTOMOLI_ROOM="bathroom" \
---ports 5050:5050 \
-benleb/automoli:latest
-```
-
-Port 5050 is opened to give access to the AppDaemon Admin-UI at <http://127.0.0.1:5050>
-
-#### Example
-
-To test AutoMoLi in your **Esszimmer** (german for dining room), use `... --env AUTOMOLI_ROOM="esszimmer" ...` in the Docker *run* command.
-
-* AppDaemon will show you its config file on startup: ![cfg](https://raw.githubusercontent.com/benleb/ad-automoli/master/.github/cfg.png)
-
-* If everything works, AutoMoLi will show you the configuration it has parsed, including the discovered sensors: ![cfg-loaded](https://raw.githubusercontent.com/benleb/ad-automoli/master/.github/cfg_loaded.png)
-
-* This is how it looks when AutoMoLi manages your lights: ![running](https://raw.githubusercontent.com/benleb/ad-automoli/master/.github/run.png)
-
 ## Installation
 
-Use [HACS](https://github.com/hacs/integration) or [download](https://github.com/benleb/ad-automoli/releases) the `automoli` directory from inside the `apps` directory here to your local `apps` directory, then add the configuration to enable the `automoli` module.
+[Download](https://github.com/mkotler/ad-automoli/tree/main/apps/automoli) the `automoli.py` file from inside the `apps/automoli` directory. Create an `automoli` directory under your local `apps` directory, then add the configuration to enable the `automoli` module.
 
 ### Example App Configuration
 
-Add your configuration to appdaemon/apps/apps.yaml, an example with two rooms is below.
+Add your configuration to apps/apps.yaml under the appdaemon directory. An example configuration with two rooms is below.
 
 ```yaml
 livingroom:
@@ -91,7 +67,6 @@ livingroom:
   humidity:
     - sensor.humidity_128d4101b95fb7
 
-
 bathroom:
   module: automoli
   class: AutoMoLi
@@ -119,7 +94,7 @@ bathroom:
 
 ## Auto-Discovery of Lights and Sensors
 
-[**AutoMoLi**](https://github.com/benleb/ad-automoli) is built around **rooms**. Every room or area in your home is represented as a seperate app in [AppDaemon](https://github.com/AppDaemon/appdaemon) with separat light setting. In your configuration you will have **one config block** for every **room**, see example configuration.  
+[**AutoMoLi**](https://github.com/mkotler/ad-automoli) is built around **rooms**. Every room or area in your home is represented as a seperate app in [AppDaemon](https://github.com/AppDaemon/appdaemon) with separate light setting. In your configuration you will have **one config block** for every **room**, see example configuration.  
 For the auto-discovery of your lights and sensors to work, AutoMoLi expects motion sensors and lights including a **room** name (can also be something else than a real room) like below:
 
 * *sensor.illumination_`room`*
@@ -188,18 +163,30 @@ None | Lights will be turned off after motion is detected, regardless of whether
 False | Lights will be turned off after motion is detected, regardless of whether AutoMoLi turned the lights on AND after the delay if they were turned on outside AutoMoLi (e.g., manually or via an automation). 
 True | Lights will only be turned off after motion is detected, if AutoMoLi turned the lights on.
 
+## Home Assistant
+**AutoMoLi** has been designed to be integrated into [**Home Assistant**](https://www.home-assistant.io/). As part of that integration, AutoMoLi will create an entity per room with attributes that track what is happening in the room.  Each entity is named automoli.room_name. Here is an example of automoli.office:
+
+property | status
+-- | --
+friendly name | Office Statistics
+current light setting | 50%
+last motion detected | 03:55:57PM 2024-02-11
+last motion by | Office Motion
+last turned on | 02:53:17PM 2024-02-11
+last turned on by | Office Motion
+turning off at | 04:25:57PM 2024-02-11
+time lights on today | 07:14:00
+times turned on by automoli | 7
+times turned off by automoli | 5
+times turned off manually | 1
+
+Notes:
+* The statistics are not maintained during restarts (of either Home Assistant or AppDaemon)
+* "time lights on today" will reset at midnight
+* "times turned on/off by automoli" and "times turned on/off manually" can get out of sync if a room has multiple lights or switches because automoli changes will be counted once for all lights in the room, but manual changes are counted individually per light. 
+
 ---
 
-<!-- ## Used by
-
-Feel free to add you project! -->
-
-<!-- ## Acknowledgments -->
-
-## Meta
-
-**Ben Lebherz**: *automation lover ⚙️ developer & maintainer* - [@benleb](https://github.com/benleb) | [@ben_leb](https://twitter.com/ben_leb)
-
-<!-- See also the list of [contributors](CONTRIBUTORS) who participated in this project. -->
+## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details
