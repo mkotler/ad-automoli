@@ -1,4 +1,4 @@
-# [![automoli](https://socialify.git.ci/mkotler/ad-automoli/image?description=1&font=KoHo&forks=1&language=1&logo=https%3A%2F%2Femojipedia-us.s3.dualstack.us-west-1.amazonaws.com%2Fthumbs%2F240%2Fapple%2F237%2Felectric-light-bulb_1f4a1.png&owner=1&pulls=1&stargazers=1&theme=Light)](https://github.com/mkotler/ad-automoli)
+# [![automoli](https://socialify.git.ci/mkotler/ad-automoli/image?description=0&font=KoHo&forks=1&language=1&logo=https%3A%2F%2Femojipedia-us.s3.dualstack.us-west-1.amazonaws.com%2Fthumbs%2F240%2Fapple%2F237%2Felectric-light-bulb_1f4a1.png&owner=0&pulls=1&stargazers=1&theme=Light)](https://github.com/mkotler/ad-automoli)
 
 <!-- # AutoMoLi - **Auto**matic **Mo**tion **Li**ghts -->
 
@@ -7,7 +7,7 @@ Many thanks to **Ben Lebherz** ([@benleb](https://github.com/benleb) | [@ben_leb
 
 ## Description
 
-Fully *automatic light management* based on motion as [AppDaemon](https://github.com/home-assistant/appdaemon) app.  
+#### Fully *automatic light management* based on conditions like motion, humidity, and more as an [AppDaemon](https://github.com/home-assistant/appdaemon) app.
 
 🕓 multiple **daytimes** to define different scenes for morning, noon, ...  
 💡 supports **Hue** (for Hue Rooms/Groups) & **Home Assistant** scenes  
@@ -21,7 +21,7 @@ Fully *automatic light management* based on motion as [AppDaemon](https://github
 
 ## Installation
 
-[Download](https://github.com/mkotler/ad-automoli/tree/main/apps/automoli) the `automoli.py` file from inside the `apps/automoli` directory. Create a `automoli` directory under your local `apps` directory, then add the configuration to enable the `automoli` module.
+[Download](https://github.com/mkotler/ad-automoli/tree/main/apps/automoli) the `automoli.py` file from inside the `apps/automoli` directory. Create an `automoli` directory under your local `apps` directory, then add the configuration to enable the `automoli` module.
 
 ### Example App Configuration
 
@@ -162,6 +162,28 @@ state | description
 None | Lights will be turned off after motion is detected, regardless of whether AutoMoLi turned the lights on.
 False | Lights will be turned off after motion is detected, regardless of whether AutoMoLi turned the lights on AND after the delay if they were turned on outside AutoMoLi (e.g., manually or via an automation). 
 True | Lights will only be turned off after motion is detected, if AutoMoLi turned the lights on.
+
+## Home Assistant
+**AutoMoLi** has been designed to be integrated into [**Home Assistant**](https://www.home-assistant.io/). As part of that integration, AutoMoLi will create an entity per room with attributes that track what is happening in the room.  Each entity is named automoli.room_name. Here is an example of automoli.office:
+
+property | status
+-- | --
+friendly name | Office Statistics
+current light setting | 50%
+last motion detected | 03:55:57PM 2024-02-11
+last motion by | Office Motion
+last turned on | 02:53:17PM 2024-02-11
+last turned on by | Office Motion
+turning off at | 04:25:57PM 2024-02-11
+time lights on today | 07:14:00
+times turned on by automoli | 7
+times turned off by automoli | 5
+times turned off manually | 1
+
+Notes:
+* The statistics are not maintained during restarts (of either Home Assistant or AppDaemon)
+* "time lights on today" will reset at midnight
+* "times turned on/off by automoli" and "times turned on/off manually" can get out of sync if a room has multiple lights or switches because automoli changes will be counted once for all lights in the room, but manual changes are counted individually per light. 
 
 ---
 
