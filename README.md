@@ -111,7 +111,7 @@ key | optional | type | default | description
 `module` | False | string | automoli | The module name of the app.
 `class` | False | string | AutoMoLi | The name of the Class.
 `room` | True | string | app name | The "room" used to find matching sensors/lights. If blank then it will use the top level name in the configuration file.
-`delay` | True | integer | 150 | Seconds without motion until lights will switched off. Can be disabled (lights stay always on) with `0`
+`delay` | True | integer | 150 | Seconds without motion until lights will switched off. Can be disabled (lights stay always on) with `0`. Has no effect if light entity is a scene.  
 `daytimes` | True | list | *see code* | Different daytimes with light settings (see below)
 `lights` | True | list/string | *auto detect* | Light entities that are both turned on and off by automoli
 `motion` | True | list/string | *auto detect* | Motion sensor entities
@@ -184,6 +184,7 @@ Notes:
 * The statistics are not maintained during restarts (of either Home Assistant or AppDaemon)
 * "time lights on today" will reset at midnight
 * "times turned on/off by automoli" and "times turned on/off manually" can get out of sync if a room has multiple lights or switches because automoli changes will be counted once for all lights in the room, but manual changes are counted individually per light. 
+* "last turned on" and "times turned on ..." will not change if a light remains on but there is an attribute change (e.g., the color of the light changes).
 
 ---
 

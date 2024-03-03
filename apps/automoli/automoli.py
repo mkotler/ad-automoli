@@ -458,6 +458,13 @@ class AutoMoLi(hass.Hass):  # type: ignore
             self.lg("")
             return
 
+        # check if any of the lights are actually scenes
+        self.light_as_scene = False
+        for light in self.lights:
+            if light.startswith("scene."):
+                self.light_as_scene = True
+                break
+
         # initialize variables for tracking room statistics
         # if track_room_stats is True sensors will be created to show room information
         # and statistics will be printed to the log at the end of each day
@@ -699,7 +706,10 @@ class AutoMoLi(hass.Hass):  # type: ignore
         # Check if got entire state object
         if attribute == "all":
             state = dict(new).get("state")
-            old_state = dict(old).get("state", "unknown")
+            if old != None:
+                old_state = dict(old).get("state", "unknown")
+            else:
+                old_state = "unknown"
 
         # do not process if state has changed from off to unavailable or unknown (or vice versa)
         # or if state has not actually changed (new == old)
@@ -778,7 +788,17 @@ class AutoMoLi(hass.Hass):  # type: ignore
             level=logging.DEBUG,
         )
 
+        # if any of the lights are actually scenes (including the current daytime)
+        # then force turning the lights on (even if they are already on)
+        dt_light_setting = self.active.get("light_setting")
+        force = self.light_as_scene or (
+            isinstance(dt_light_setting, str) and dt_light_setting.startswith("scene.")
+        )
+
         # turn on the lights if not all are already on
+        refresh = ""
+        if event != "motion_state_changed_detection":
+            refresh = " → refreshing timer"
         if self.dimming or not all(
             [self.get_state(light, copy=False) == "on" for light in self.lights]
         ):
@@ -787,10 +807,14 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 level=logging.DEBUG,
             )
             self.lights_on(source=motion_trigger)
+        elif force:
+            self.lg(
+                f"{stack()[0][3]}: lights in {self.room.name.replace('_',' ').title()} already on but forcing an update "
+                f"because of a possible scene change {refresh} | {self.dimming = }",
+                level=logging.DEBUG,
+            )
+            self.lights_on(source=motion_trigger, force=force)
         else:
-            refresh = ""
-            if event != "motion_state_changed_detection":
-                refresh = " → refreshing timer"
             self.lg(
                 f"{stack()[0][3]}: lights in {self.room.name.replace('_',' ').title()} already on {refresh}"
                 f" | {self.dimming = }",
@@ -822,7 +846,10 @@ class AutoMoLi(hass.Hass):  # type: ignore
         # Check if got entire state object
         if attribute == "all":
             state = dict(new).get("state")
-            old_state = dict(old).get("state", "unknown")
+            if old != None:
+                old_state = dict(old).get("state", "unknown")
+            else:
+                old_state = "unknown"
             context_id = dict(dict(new).get("context")).get("id")
 
         # ensure the change wasn't because of automoli
@@ -1315,12 +1342,13 @@ class AutoMoLi(hass.Hass):  # type: ignore
             else self.night_mode.get("light")
         )
 
+        all_lights_on = all(
+            [self.get_state(light, copy=False) == "on" for light in self.lights]
+        )
         if isinstance(light_setting, str):
 
             # last check until we switch all the lights on... really!
-            if not force and all(
-                [self.get_state(light, copy=False) == "on" for light in self.lights]
-            ):
+            if not force and all_lights_on:
                 self.lg("¯\\_(ツ)_/¯")
                 return
 
@@ -1348,7 +1376,8 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 if item in self._switched_off_by_automoli:
                     self._switched_off_by_automoli.remove(item)
 
-            self.run_in(self.update_room_stats, 0, stat="lastOn", source=source)
+            if not all_lights_on:
+                self.run_in(self.update_room_stats, 0, stat="lastOn", source=source)
 
             self.lg(
                 f"{hl(self.room.name.replace('_',' ').title())} turned {hl('on')} by {hl(source)} → "
@@ -1376,14 +1405,12 @@ class AutoMoLi(hass.Hass):  # type: ignore
 
             else:
                 # last check until we switch all the lights on... really!
-                if not force and all(
-                    [self.get_state(light, copy=False) == "on" for light in self.lights]
-                ):
+                if not force and all_lights_on:
                     self.lg("¯\\_(ツ)_/¯")
                     return
 
                 for entity in self.lights:
-                    if entity.startswith("switch."):
+                    if entity.startswith("switch.") or entity.startswith("scene."):
                         self.call_service(
                             "homeassistant/turn_on", entity_id=entity  # type:ignore
                         )
@@ -1403,7 +1430,8 @@ class AutoMoLi(hass.Hass):  # type: ignore
                     f" | delay: {hl(natural_time(int(self.active['delay'])))}",
                     icon=ON_ICON,
                 )
-                self.run_in(self.update_room_stats, 0, stat="lastOn", source=source)
+                if not all_lights_on:
+                    self.run_in(self.update_room_stats, 0, stat="lastOn", source=source)
         else:
             raise ValueError(
                 f"invalid brightness/scene: {light_setting!s} " f"in {self.room}"
@@ -1839,10 +1867,13 @@ class AutoMoLi(hass.Hass):  # type: ignore
     # "current_light_setting": Current % that the light will be turned on
     # "debug_message": Add attribute that logs last stat that was updated
     #
-    # Note: Manual/automoli counts can get out of sync if a room has multiple lights/switches
+    # Notes:
+    # - Manual/automoli counts can get out of sync if a room has multiple lights/switches
     # because automoli changes will be counted once for all lights in the room, but manual changes
     # will be counted individually per light. Can avoid this problem by separating each switch into
     # its own room.
+    # - "last turned on" and "times turned on ..." will not change if the light remains on but
+    # there is an attribute change (e.g., the color of the light changes).
 
     def init_room_stats(self, _: Any | None = None) -> None:
         entity = self.get_state(self.entity_id)
@@ -1862,7 +1893,10 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 else self.night_mode.get("light")
             )
             if light_setting != None:
-                self.sensor_attr["current_light_setting"] = str(light_setting) + "%"
+                current_light_setting = str(light_setting)
+                if isinstance(light_setting, int):
+                    current_light_setting = current_light_setting + "%"
+                self.sensor_attr["current_light_setting"] = current_light_setting
 
         else:
             # Check if sensor was last updated before today
@@ -2124,7 +2158,10 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 if not self.night_mode_active()
                 else self.night_mode.get("light")
             )
-            self.sensor_attr["current_light_setting"] = str(light_setting) + "%"
+            current_light_setting = str(light_setting)
+            if isinstance(light_setting, int):
+                current_light_setting = current_light_setting + "%"
+            self.sensor_attr["current_light_setting"] = current_light_setting
 
         elif stat == "blockedOn":
             self.sensor_attr["blocked_on_by"] = self.get_name(kwargs.get("entity"))
