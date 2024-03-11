@@ -129,7 +129,7 @@ key | optional | type | default | description
 `starttime` | False | string | | Time this daytime starts or sunrise|sunset [+|- HH:MM]
 `name` | False | string | | A name for this daytime
 `delay` | True | integer | 150 | Seconds without motion until lights will switched off. Can be disabled (lights stay always on) with `0`. Setting this will overwrite the global `delay` setting for this daytime.
-`light` | False | integer/string | | Either a percent integer value (0-100) or an entity (e.g., scene or script) to turn on when daytime starts
+`light` | False | integer/string | | Either a percent integer value (0-100) or an entity (including a scene or script) to turn on when daytime starts
 
 Note: If there is only one daytime, the light and delay settings will be applied for the entire day, regardless of the starttime.
 
@@ -139,7 +139,8 @@ key | optional | type | default | description
 -- | -- | -- | -- | --
 `dependencies` | True | string | None | If you set configuration options under an app named "default" then those will become the defaults across all rooms (but can still be overridden within a specific room). Specify `dependencies: default` so that any changes to the "default" app will be automatically picked up.
 `transition_on_daytime_switch` | True | bool | False | directly activate a daytime on its start time (instead to just set it as active daytime used if lights are switched from off to on)
-`lights_off` | True | list/string | None | Instead of turning off the entities in lights, turn off these entities instead after the delay. Use with caution because lights turned on may never be turned off automically if they do not appear in both `lights` and `lights_off`.
+`after_on` | True | list/string | None | After lights are turned on, this list of entities will also be turned on.  Unlike `lights` this can include scenes and scripts.
+`after_off` | True | list/string | None | After lights are turned off, this list of entities will also be turned on.  Like `after_on` this can also include scenes and scripts.
 `only_own_events` | True | bool | None | Track if automoli switched this light on. If not, automoli will not switch the light off. (see below)
 `delay_outside_events` | True | integer | same as delay | Seconds without motion until lights will switched off, if they were turned on by an event outside automoli (e.g., manually, via automation, etc.). Can be disabled (lights stay always on) with `0`
 `disable_switch_entities` | True | list/string | | One or more Home Assistant Entities as switch for AutoMoLi. If the state of **any** entity is *off*, AutoMoLi is *deactivated*. (Use an *input_boolean* for example)
@@ -155,8 +156,6 @@ key | optional | type | default | description
 `debug_log` | True | bool | false | Activate debug logging (for this room)
 `colorize_logging` | True | bool | True | Use ANSI colors in the log. On by default but can be turned off to remove escape codes for viewers that do not support coloring. 
 `track_room_stats` | True | boolean | false | Create sensors to show room statistics and print a daily summary in the log at midnight for how long lights were on that day. Even if this is false, firing the event "automoli_stats" will print a summary manually. 
-
-Note: `lights` and `lights_off` can both include scenes and scripts.  Scenes and scripts in `lights` will only execute when the lights are first turned on (and not when they are turned off).
 
 ### only_own_events
 
