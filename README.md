@@ -111,7 +111,7 @@ key | optional | type | default | description
 `module` | False | string | automoli | The module name of the app.
 `class` | False | string | AutoMoLi | The name of the Class.
 `room` | True | string | app name | The "room" used to find matching sensors/lights. If blank then it will use the top level name in the configuration file.
-`delay` | True | integer | 150 | Seconds without motion until lights will switched off. Can be disabled (lights stay always on) with `0`. Has no effect if light entity is a scene.  
+`delay` | True | integer | 150 | Seconds without motion until lights will switched off. Can be disabled (lights stay always on) with `0`.
 `daytimes` | True | list | *see code* | Different daytimes with light settings (see below)
 `lights` | True | list/string | *auto detect* | Light entities that are both turned on and off by automoli
 `motion` | True | list/string | *auto detect* | Motion sensor entities
@@ -143,6 +143,7 @@ key | optional | type | default | description
 `after_off` | True | list/string | None | After lights are turned off, this list of entities will also be turned on.  Like `after_on` this can also include scenes and scripts.
 `only_own_events` | True | bool | None | Track if automoli switched this light on. If not, automoli will not switch the light off. (see below)
 `delay_outside_events` | True | integer | same as delay | Seconds without motion until lights will switched off, if they were turned on by an event outside automoli (e.g., manually, via automation, etc.). Can be disabled (lights stay always on) with `0`
+`cooldown` | True | integer | 30 | If lights are switched off manually, wait this period before AutoMoLi automatically turns lights on again.
 `disable_switch_entities` | True | list/string | | One or more Home Assistant Entities as switch for AutoMoLi. If the state of **any** entity is *off*, AutoMoLi is *deactivated*. (Use an *input_boolean* for example)
 `disable_switch_states` | True | list/string | ["off"] | Custom states for `disable_switch_entities`. If the state of **any** entity is *in this list*, AutoMoLi is *deactivated*. Can be used to disable with `media_players` in `playing` state for example.
 `block_on_switch_entities` | True | list/string | | If the state of **any** entity is *off*, AutoMoLi will not turn *on* lights until the entity is no longer *off*. (Use an *input_boolean* for example)
