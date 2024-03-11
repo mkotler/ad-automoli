@@ -1567,13 +1567,11 @@ class AutoMoLi(hass.Hass):  # type: ignore
             level=logging.DEBUG,
         )
 
-        # if any([self.get_state(entity) == "on" for entity in self.lights]):
-        if all([self.get_state(entity, copy=False) == "off" for entity in self.lights]):
-            return
-
-        at_least_one_turned_off = False
+        at_least_one_turned_off = kwargs.get("one_turned_off_already", False)
+        at_least_one_error = False
         for entity in self.lights:
-            if self.get_state(entity, copy=False) == "on":
+            state = self.get_state(entity, copy=False)
+            if state == "on":
                 if self.only_own_events:
                     if entity in self._switched_on_by_automoli:
                         self.call_service(
@@ -1593,7 +1591,15 @@ class AutoMoLi(hass.Hass):  # type: ignore
                     if entity not in self._switched_off_by_automoli:
                         self._switched_off_by_automoli.add(entity)
                     at_least_one_turned_off = True
-        if at_least_one_turned_off:
+            elif state in NOT_READY_STATES:
+                at_least_one_error = True
+                self.lg(
+                    f"{entity} is not ready to be turned off with state '{state}'",
+                    icon=ALERT_ICON,
+                )
+
+        # only run if there were no errors
+        if at_least_one_turned_off and not at_least_one_error:
             delay = kwargs.get("timeDelay", 0)
             daytimeChange = kwargs.get("daytimeChange", False)
             self.run_in(
@@ -1620,6 +1626,18 @@ class AutoMoLi(hass.Hass):  # type: ignore
                     "attributes", {}
                 ),
             )
+
+        if at_least_one_error:
+            self.lg(
+                f"Since at least one light may not have been turned off, retrying in 60 seconds.",
+                icon=ALERT_ICON,
+            )
+            # Retry again in 60 seconds. Pass in current state if already turned one off so can finish
+            # actions after turning lights off, once there are no errors.
+            handle = self.run_in(
+                self.lights_off, 60, one_turned_off_already=at_least_one_turned_off
+            )
+            self.room.handles_automoli.add(handle)
 
     # Global lock ensures that multiple log writes occur together after turning off lights
     @ad.global_lock
