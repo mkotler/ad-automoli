@@ -29,6 +29,7 @@ ON_ICON = APP_ICON
 OFF_ICON = "🌑"
 DIM_ICON = "🔜"
 DAYTIME_SWITCH_ICON = "⏰"
+ALERT_ICON = "⚠️"
 
 # default values
 DEFAULT_NAME = "daytime"
@@ -54,6 +55,8 @@ RANDOMIZE_SEC = 5
 SECONDS_PER_MIN: int = 60
 DATETIME_FORMAT = "%I:%M:%S%p %Y-%m-%d"
 TIME_FORMAT = "%H:%M:%S"
+
+NOT_READY_STATES = {"unavailable", "unknown", "none"}
 
 
 class EntityType(Enum):
@@ -272,14 +275,13 @@ class AutoMoLi(hass.Hass):  # type: ignore
             self.lg(f" hey, what about trying {hl('Python >= 3.9')}‽ 🤪")
             self.lg("")
         if not py38_or_higher:
-            icon_alert = "⚠️"
-            self.lg("", icon=icon_alert)
+            self.lg("", icon=ALERT_ICON)
             self.lg("")
             self.lg(
                 f" please update to {hl('Python >= 3.8')} at least! 🤪", icon=icon_alert
             )
             self.lg("")
-            self.lg("", icon=icon_alert)
+            self.lg("", icon=ALERT_ICON)
         if not py37_or_higher:
             raise ValueError
 
@@ -392,13 +394,12 @@ class AutoMoLi(hass.Hass):  # type: ignore
 
         # eol of the old option name
         if "disable_switch_entity" in self.args:
-            icon_alert = "⚠️"
-            self.lg("", icon=icon_alert)
+            self.lg("", icon=ALERT_ICON)
             self.lg(
                 f" please migrate {hl('disable_switch_entity')} to {hl('disable_switch_entities')}",
-                icon=icon_alert,
+                icon=ALERT_ICON,
             )
-            self.lg("", icon=icon_alert)
+            self.lg("", icon=ALERT_ICON)
             self.args.pop("disable_switch_entity")
             return
 
@@ -410,6 +411,26 @@ class AutoMoLi(hass.Hass):  # type: ignore
 
         # define light entities switched by automoli
         self.lights: set[str] = self.listr(self.getarg("lights", set()))
+
+        # warn and remove scenes and scripts from lights and recommend using after_on or after_off
+        scene_or_script_found = False
+        remove_list = set()
+        for light in self.lights:
+            if light.startswith("scene.") or light.startswith("script."):
+                scene_or_script_found = True
+                remove_list.add(light)
+        for light in remove_list:
+            self.lights.remove(light)
+        if scene_or_script_found:
+            self.lg(
+                f"A scene or script was found in the list of lights and removed",
+                icon=ALERT_ICON,
+            )
+            self.lg(
+                f"Instead use after_on to turn on scenes or to run scripts when lights go on",
+                icon=ALERT_ICON,
+            )
+
         if not self.lights:
             room_light_group = f"light.{self.room_name}"
             if self.entity_exists(room_light_group):
@@ -419,8 +440,9 @@ class AutoMoLi(hass.Hass):  # type: ignore
                     self.find_sensors(EntityType.LIGHT.prefix, self.room_name, states)
                 )
 
-        # define a different set of entities to be switched off by automoli
-        self.lightsOff: set[str] = self.listr(self.getarg("lights_off", set()))
+        # define a set of entities that will be switched on after lights are turned on / off
+        self.after_on: set[str] = self.listr(self.getarg("after_on", set()))
+        self.after_off: set[str] = self.listr(self.getarg("after_off", set()))
 
         # sensors
         self.sensors: dict[str, Any] = {}
@@ -540,7 +562,6 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 f"{stack()[0][3]}: handling events outside AutoMoLi - adding state listeners for lights",
                 level=logging.DEBUG,
             )
-            any_on = False
             for light in self.lights:
                 # do not track scenes or scripts
                 if not light.startswith("scene.") and not light.startswith("script."):
@@ -553,14 +574,6 @@ class AutoMoLi(hass.Hass):  # type: ignore
                     )
                     # assume any lights that are currently on were switched on by AutoMoLi
                     if self.get_state(light, copy=False) == "on":
-                        self._switched_on_by_automoli.add(light)
-                        any_on = True
-
-            # If any of the lights were on assume that the scene or script has already been run
-            # and add it to switched_on_by_automoli to not run it again until lights are turned off
-            if any_on:
-                for light in self.lights:
-                    if light.startswith("scene.") or light.startswith("script."):
                         self._switched_on_by_automoli.add(light)
 
         # Track if within cooling down period
@@ -589,7 +602,6 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 "lights": self.lights,
                 "dim": self.dim,
                 "sensors": self.sensors,
-                "override_delay_entities": self.override_delay_entities,
                 "override_delay": self.override_delay,
                 "disable_hue_groups": self.disable_hue_groups,
                 "warning_flash": self.warning_flash,
@@ -599,6 +611,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
             }
         )
 
+        # add illuminance or humidity thresholds if defined
         if self.thresholds:
             self.args.update({"thresholds": self.thresholds})
 
@@ -623,9 +636,15 @@ class AutoMoLi(hass.Hass):  # type: ignore
             )
             self.args.update({"block_off_switch_states": self.block_off_switch_states})
 
-        # add lights_off entity to config if given
-        if self.lightsOff:
-            self.args.update({"lights_off": self.lightsOff})
+        # add override delay entities to config if given
+        if self.override_delay_entities:
+            self.args.update({"override_delay_entities": self.override_delay_entities})
+
+        # add after_on and after_off entities to config if given
+        if self.after_on:
+            self.args.update({"after_on": self.after_on})
+        if self.after_off:
+            self.args.update({"after_off": self.after_off})
 
         # show parsed config
         self.show_info(self.args)
@@ -690,13 +709,9 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 # But if the lights are all off and brightness changed, that's the one case
                 # when do not want to update (or else could turn on the lights even when
                 # no motion is detected)
-                all_off = True
-                for entity in self.lights:
-                    if self.get_state(
-                        entity, copy=False
-                    ) == "on" and not entity.startswith("script."):
-                        all_off = False
-                if self.transition_on_daytime_switch and not all_off:
+                if self.transition_on_daytime_switch and any(
+                    [self.get_state(light, copy=False) == "on" for light in self.lights]
+                ):
                     self.lights_on(source="daytime change", force=True)
                     action_done = "activated"
 
@@ -717,8 +732,6 @@ class AutoMoLi(hass.Hass):  # type: ignore
         schedules the callback to switch the lights off after a `state_changed` callback
         of a motion sensors changing to "cleared" is received
         """
-        state = new
-        old_state = old
         # Check if got entire state object
         if attribute == "all":
             state = dict(new).get("state")
@@ -726,31 +739,25 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 old_state = dict(old).get("state", "unknown")
             else:
                 old_state = "unknown"
+        else:
+            state = new
+            old_state = old
 
-        # do not process if state has changed from off to unavailable or unknown (or vice versa)
-        # or if state has not actually changed (new == old)
-        if (
-            (
-                state in ("unavailable", "unknown")
-                and old_state == self.states["motion_off"]
-            )
-            or (
-                state == self.states["motion_off"]
-                and old_state in ("unavailable", "unknown")
-            )
-            or state == old_state
-        ):
+        # Do not process if there has not actually been a state change
+        if state == old_state:
             return
 
-        # start the timer if motion is cleared
+        # Handle case when motion sensor went from "on" to a not ready state
+        states = set()
+        states.update(NOT_READY_STATES)
+        states.add(self.states["motion_off"])
+
         self.lg(
-            f"{stack()[0][3]}: {entity} changed {attribute} from {old} to {new}",
+            f"{stack()[0][3]}: states to check: {states} | sensors: {self.sensors[EntityType.MOTION.idx]} | all clear: {all([self.get_state(sensor, copy=False) in states for sensor in self.sensors[EntityType.MOTION.idx]])}",
             level=logging.DEBUG,
         )
 
-        # Handle case when motion sensor went from "on" to unknown or unavailable
-        states = {self.states["motion_off"], "unknown", "unavailable"}
-
+        # Check that all motion sensors have cleared
         if all(
             [
                 self.get_state(sensor, copy=False) in states
@@ -758,6 +765,10 @@ class AutoMoLi(hass.Hass):  # type: ignore
             ]
         ):
             # all motion sensors off, starting timer
+            self.lg(
+                f"{stack()[0][3]}: {entity} changed {attribute} from {old} to {new}",
+                level=logging.DEBUG,
+            )
             self.refresh_timer(refresh_type="motion_cleared")
             self.run_in(self.update_room_stats, 0, stat="motion_cleared", entity=entity)
         else:
@@ -815,16 +826,9 @@ class AutoMoLi(hass.Hass):  # type: ignore
         if event != "motion_state_changed_detection":
             refresh = " → refreshing timer"
 
-        all_on = True
-        for light in self.lights:
-            if (
-                light.startswith("scene.")
-                or light.startswith("script.")
-                or self.get_state(light, copy=False) == "off"
-            ):
-                all_on = False
-
-        if self.dimming or not all_on:
+        if self.dimming or not all(
+            [self.get_state(light, copy=False) == "on" for light in self.lights]
+        ):
             self.lg(
                 f"{stack()[0][3]}: switching on | {self.dimming = }",
                 level=logging.DEBUG,
@@ -864,8 +868,6 @@ class AutoMoLi(hass.Hass):  # type: ignore
             level=logging.DEBUG,
         )
 
-        state = new
-        old_state = old
         # Check if got entire state object
         if attribute == "all":
             state = dict(new).get("state")
@@ -874,6 +876,9 @@ class AutoMoLi(hass.Hass):  # type: ignore
             else:
                 old_state = "unknown"
             context_id = dict(dict(new).get("context")).get("id")
+        else:
+            state = new
+            old_state = old
 
         # ensure the change wasn't because of automoli
         if (state == "on" and entity in self._switched_on_by_automoli) or (
@@ -885,10 +890,10 @@ class AutoMoLi(hass.Hass):  # type: ignore
             )
             return
 
-        # do not process if current state is 'unavailable', 'unknown',
+        # do not process if current state is in list of not ready states
         # or has not really changed (new == old)
         # assume that previous state holds until new state is available
-        if state == "unavailable" or state == "unknown" or state == old_state:
+        if state in NOT_READY_STATES or state == old_state:
             return
 
         # Determine if state change was caused by an automation
@@ -1121,7 +1126,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 return True
 
         # or because currently in cooldown period after an outside change
-        if self.cooling_down:
+        if self.cooling_down and onoff == "on":
             # Do not need to refresh timer because cooling_down currently
             # only disables lights turning on
             self.lg(f"{APP_NAME} is disabled during cooldown period")
@@ -1204,11 +1209,10 @@ class AutoMoLi(hass.Hass):  # type: ignore
         return False
 
     def dim_lights(self, kwargs: dict[str, Any]) -> None:
-        # TODO: I do not believe this code every worked because room.lights_dimmable and
+        # TODO: I do not believe this code ever worked because room.lights_dimmable and
         # room.lights_undimmable are never actually set.  Therefore, this code will always
         # turn the lights off with the "workaround" defined below.  If ever get around to fixing,
-        # make sure to update the README file to add dim argument. Also, determine what to do when
-        # there are entities in the configuration variable self.lightsOff and scenes or scripts.
+        # make sure to update the README file to add dim argument.
 
         message: str = ""
 
@@ -1314,8 +1318,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
 
     def turn_off_lights(self, kwargs: dict[str, Any]) -> None:
         # Note: Today this is only called from the dim_lights function. Normally,
-        # turned_off is called from lights_off. Currently does not take into account
-        # scenes or scripts or the lights_off configuration.
+        # turned_off is called from lights_off.
         if lights := kwargs.get("lights"):
             self.lg(f"{stack()[0][3]}: {lights = }", level=logging.DEBUG)
             for light in lights:
@@ -1384,25 +1387,18 @@ class AutoMoLi(hass.Hass):  # type: ignore
             else self.night_mode.get("light")
         )
 
-        all_on = True
-        for light in self.lights:
-            if (
-                light.startswith("scene.")
-                or light.startswith("script.")
-                or self.get_state(light, copy=False) == "off"
-            ):
-                all_on = False
-
+        at_least_one_turned_on = False
+        all_lights_on = all(
+            [self.get_state(light, copy=False) == "on" for light in self.lights]
+        )
         if isinstance(light_setting, str):
 
             # last check until we switch all the lights on... really!
-            if not force and all_on:
+            if not force and all_lights_on:
                 self.lg(f"{stack()[0][3]}: ¯\\_(ツ)_/¯", level=logging.DEBUG)
                 return
 
-            did_something = False
-
-            # Start by iterating through all of the lights
+            # Start by iterating through all of the lights and turn them on
             for entity in self.lights:
                 self.lg(
                     f"{stack()[0][3]}: entity: {entity} | startswith: {entity.split('.')[0]} | "
@@ -1418,53 +1414,35 @@ class AutoMoLi(hass.Hass):  # type: ignore
                         group_name=self.friendly_name(entity),  # type:ignore
                         scene_name=light_setting,  # type:ignore
                     )
-                    did_something = True
-
-                    self._switched_on_by_automoli.add(entity)
+                    # Considering that activating a scene is the equivalent of turning it on
+                    if not entity in self._switched_on_by_automoli:
+                        self._switched_on_by_automoli.add(entity)
                     if entity in self._switched_off_by_automoli:
                         self._switched_off_by_automoli.remove(entity)
-                elif entity.startswith("light"):
+                    at_least_one_turned_on = True
+                elif self.get_state(entity, copy=False) == "off":
                     self.call_service(
-                        "homeassistant/turn_on",
-                        entity_id=entity,  # type:ignore
-                        brightness_pct=light_setting,  # type:ignore
+                        "homeassistant/turn_on", entity_id=entity  # type:ignore
                     )
                     if not entity in self._switched_on_by_automoli:
                         self._switched_on_by_automoli.add(entity)
                     if entity in self._switched_off_by_automoli:
                         self._switched_off_by_automoli.remove(entity)
-                    did_something = True
-                # Otherwise run scenes and scripts if they haven't been run before
-                # and turn on any lights that are off
-                elif (
-                    (entity.startswith("scene.") or entity.startswith("script."))
-                    and not entity in self._switched_on_by_automoli
-                ) or (
-                    not entity.startswith("script.")
-                    and self.get_state(entity, copy=False) == "off"
-                ):
-                    self.call_service(
-                        "homeassistant/turn_on", entity_id=entity  # type:ignore
-                    )
-                    self._switched_on_by_automoli.add(entity)
-                    did_something = True
+                    at_least_one_turned_on = True
 
-            # Then if the light_setting is a scene or script apply it after, unless
-            # it has been run before
-            if (
-                light_setting.startswith("scene.")
-                or light_setting.startswith("script.")
-                and not light_setting in self._switched_on_by_automoli
+            # Then if the light_setting is a scene or script apply it after
+            if light_setting.startswith("scene.") or light_setting.startswith(
+                "script."
             ):
-                self.call_service("homeassistant/turn_on", entity_id=light_setting)
-                self._switched_on_by_automoli.add(light_setting)
-                did_something = True
+                self.call_service(
+                    "homeassistant/turn_on", entity_id=light_setting  # type:ignore
+                )
 
-            # if room is not already "on" update stats
-            if self.sensor_state == "off":
-                self.run_in(self.update_room_stats, 0, stat="lastOn", source=source)
+            if at_least_one_turned_on:
+                # if room is not already "on" update stats
+                if self.sensor_state == "off":
+                    self.run_in(self.update_room_stats, 0, stat="lastOn", source=source)
 
-            if did_something:
                 self.lg(
                     f"{hl(self.room.name.replace('_',' ').title())} turned {hl('on')} by {hl(source)} → "
                     f"{'hue scene:' if self.active['is_hue_group'] else ''} "
@@ -1473,18 +1451,23 @@ class AutoMoLi(hass.Hass):  # type: ignore
                     icon=ON_ICON,
                 )
 
+                # If there are any actions to take after the lights are on then run them now
+                if self.after_on:
+                    self.lg(
+                        f"{stack()[0][3]}: Lights are on. Now turning on the following 'after_on' entities {self.after_on}.",
+                        level=logging.DEBUG,
+                    )
+                    self.turn_on_entities(self.after_on)
+
         elif isinstance(light_setting, int):
 
             if light_setting == 0:
-                all_off = True
-                # Ignore scenes and scripts
-                for entity in self.lights:
-                    if self.get_state(
-                        entity, copy=False
-                    ) == "on" and not entity.startswith("script."):
-                        all_off = False
-
-                if all_off:
+                if all(
+                    [
+                        self.get_state(entity, copy=False) == "off"
+                        for entity in self.lights
+                    ]
+                ):
                     self.lg(
                         f"{stack()[0][3]}: no lights turned on because current 'daytime' light setting is 0",
                         level=logging.DEBUG,
@@ -1494,11 +1477,10 @@ class AutoMoLi(hass.Hass):  # type: ignore
 
             else:
                 # last check until we switch all the lights on... really!
-                if not force and all_on:
+                if not force and all_lights_on:
                     self.lg(f"{stack()[0][3]}: ¯\\_(ツ)_/¯", level=logging.DEBUG)
                     return
 
-                did_something = False
                 for entity in self.lights:
                     self.lg(
                         f"{stack()[0][3]}: entity: {entity} | startswith: {entity.split('.')[0]} | switched_on_by_automoli: {entity in self._switched_on_by_automoli}",
@@ -1514,25 +1496,26 @@ class AutoMoLi(hass.Hass):  # type: ignore
                             self._switched_on_by_automoli.add(entity)
                         if entity in self._switched_off_by_automoli:
                             self._switched_off_by_automoli.remove(entity)
-                        did_something = True
-                    # Otherwise run scenes and scripts if they haven't been run before
-                    # and turn on any lights that are off
-                    elif (
-                        (entity.startswith("scene.") or entity.startswith("script."))
-                        and not entity in self._switched_on_by_automoli
-                    ) or (
-                        not entity.startswith("script.")
-                        and self.get_state(entity, copy=False) == "off"
-                    ):
+                        at_least_one_turned_on = True
+
+                    # Otherwise turn on any lights that are off
+                    elif self.get_state(entity, copy=False) == "off":
                         self.call_service(
                             "homeassistant/turn_on", entity_id=entity  # type:ignore
                         )
-                        self._switched_on_by_automoli.add(entity)
+                        if not entity in self._switched_on_by_automoli:
+                            self._switched_on_by_automoli.add(entity)
                         if entity in self._switched_off_by_automoli:
                             self._switched_off_by_automoli.remove(entity)
-                        did_something = True
+                        at_least_one_turned_on = True
 
-                if did_something:
+                if at_least_one_turned_on:
+                    # if room is not already "on" update stats
+                    if self.sensor_state == "off":
+                        self.run_in(
+                            self.update_room_stats, 0, stat="lastOn", source=source
+                        )
+
                     self.lg(
                         f"{hl(self.room.name.replace('_',' ').title())} turned {hl('on')} by {hl(source)} → "
                         f"brightness: {hl(light_setting)}%"
@@ -1540,9 +1523,13 @@ class AutoMoLi(hass.Hass):  # type: ignore
                         icon=ON_ICON,
                     )
 
-                # if room is not already "on" update stats
-                if self.sensor_state == "off":
-                    self.run_in(self.update_room_stats, 0, stat="lastOn", source=source)
+                    # If there are any actions to take after the lights are on then run them now
+                    if self.after_on:
+                        self.lg(
+                            f"{stack()[0][3]}: Lights are on. Now turning on the following 'after_on' entities {self.after_on}",
+                            level=logging.DEBUG,
+                        )
+                        self.turn_on_entities(self.after_on)
         else:
             raise ValueError(
                 f"invalid brightness/scene: {light_setting!s} " f"in {self.room}"
@@ -1567,45 +1554,20 @@ class AutoMoLi(hass.Hass):  # type: ignore
         # cancel scheduled callbacks
         self.clear_handles()
 
-        # if turning off lights because of a daytime change then use lights entities instead of lightsOff
-        daytimeChange = kwargs.get("daytimeChange", False)
-
-        if self.lightsOff and not daytimeChange:
-            self.lg(
-                f"{stack()[0][3]}: lights_off was defined so turning these entities off instead",
-                level=logging.DEBUG,
-            )
-            entities = self.lightsOff
-            execute = True
-        else:
-            entities = self.lights
-            execute = False
-
         self.lg(
             f"{stack()[0][3]}: "
-            f"{any([self.get_state(entity, copy=False) == 'on' for entity in entities]) = }"
-            f" | {entities = }",
+            f"{any([self.get_state(entity, copy=False) == 'on' for entity in self.lights]) = }"
+            f" | {self.lights = }",
             level=logging.DEBUG,
         )
 
-        all_off = True
-        for light in self.lights:
-            if (
-                light.startswith("scene.")
-                or light.startswith("script.")
-                or self.get_state(light, copy=False) == "on"
-            ):
-                all_off = False
-
         # if any([self.get_state(entity) == "on" for entity in self.lights]):
-        if all_off:
+        if all([self.get_state(entity, copy=False) == "off" for entity in self.lights]):
             return
 
-        did_something = False
-        for entity in entities:
-            if self.get_state(entity, copy=False) == "on" and not entity.startswith(
-                "script."
-            ):
+        at_least_one_turned_off = False
+        for entity in self.lights:
+            if self.get_state(entity, copy=False) == "on":
                 if self.only_own_events:
                     if entity in self._switched_on_by_automoli:
                         self.call_service(
@@ -1613,36 +1575,32 @@ class AutoMoLi(hass.Hass):  # type: ignore
                         )  # type:ignore
                         if entity in self._switched_on_by_automoli:
                             self._switched_on_by_automoli.remove(entity)
-                        self._switched_off_by_automoli.add(entity)
-                        did_something = True
+                        if entity not in self._switched_off_by_automoli:
+                            self._switched_off_by_automoli.add(entity)
+                        at_least_one_turned_off = True
                 else:
                     self.call_service(
                         "homeassistant/turn_off", entity_id=entity  # type:ignore
                     )  # type:ignore
                     if entity in self._switched_on_by_automoli:
                         self._switched_on_by_automoli.remove(entity)
-                    self._switched_off_by_automoli.add(entity)
-                    did_something = True
-            # only run scenes and scripts if using lights_off
-            elif (
-                entity.startswith("scene.") or entity.startswith("script.")
-            ) and execute:
-                self.call_service(
-                    "homeassistant/turn_on", entity_id=entity  # type:ignore
-                )  # type:ignore
-                did_something = True
-        if did_something:
+                    if entity not in self._switched_off_by_automoli:
+                        self._switched_off_by_automoli.add(entity)
+                    at_least_one_turned_off = True
+        if at_least_one_turned_off:
             delay = kwargs.get("timeDelay", 0)
+            daytimeChange = kwargs.get("daytimeChange", False)
             self.run_in(
                 self.turned_off, 0, timeDelay=delay, daytimeChange=daytimeChange
             )
 
-        # Remove any scenes or scripts that were processed by during lights_on
-        for entity in self.lights:
-            if (
-                entity.startswith("scene.") or entity.startswith("script.")
-            ) and entity in self._switched_on_by_automoli:
-                self._switched_on_by_automoli.remove(entity)
+            # If there are any actions to take after the lights are off then run them now
+            if self.after_off:
+                self.lg(
+                    f"{stack()[0][3]}: Lights are off. Now turning on the following 'after_off' entities {self.after_off}.",
+                    level=logging.DEBUG,
+                )
+                self.turn_on_entities(self.after_off)
 
         # experimental | reset for xiaomi "super motion" sensors | idea from @wernerhp
         # app: https://github.com/wernerhp/appdaemon_aqara_motion_sensors
@@ -1727,6 +1685,24 @@ class AutoMoLi(hass.Hass):  # type: ignore
             f"{self.seconds_to_time(difference, True)} since {lastOn.strftime(DATETIME_FORMAT)}."
         )
 
+    def turn_on_entities(self, entities: set[str]) -> set | None:
+        """This is a helper function to turn on either a set of entities.
+        Precondition: Assume all entities are valid since already checked during initialization.
+        For each entity, it will attempt to 'turn on' the entity.  Supports any
+        entities that can be turned on with the generic homeassistant/turn_on service.
+        As many entities as can be processed will be. Returns a set of any entities that were not ready.
+        """
+        not_ready: set[str] = set()
+
+        for entity in entities:
+            state = self.get_state(entity, copy=False)
+            if state in NOT_READY_STATES:
+                not_ready.add(entity)
+            else:
+                self.turn_on(entity)
+
+        return not_ready if len(not_ready) > 0 else None
+
     def warning_flash_off(self, _: dict[str, Any] | None = None) -> None:
         # check if automoli is disabled via home assistant entity or blockers like the "shower case"
         # if so then don't do the warning flash
@@ -1739,33 +1715,22 @@ class AutoMoLi(hass.Hass):  # type: ignore
             level=logging.DEBUG,
         )
 
-        # if lightsOff has been defined then flash the warning on those lights
-        if self.lightsOff:
-            self.lg(
-                f"{stack()[0][3]}: lights_off was defined so flashing these lights off",
-                level=logging.DEBUG,
-            )
-            entities = self.lightsOff
-        else:
-            entities = self.lights
-
         # turn off lights that are on and save those in self._warning_lights to turn back on
-        did_something = False
-        for entity in entities:
-            if self.get_state(entity, copy=False) == "on" and not entity.startswith(
-                "script."
-            ):
+        at_least_one_turned_off = False
+        for entity in self.lights:
+            if self.get_state(entity, copy=False) == "on":
                 self._warning_lights.add(entity)
                 self.call_service(
                     "homeassistant/turn_off", entity_id=entity  # type:ignore
                 )  # type:ignore
-                did_something = True
+                at_least_one_turned_off = True
                 if entity in self._switched_on_by_automoli:
                     self._switched_on_by_automoli.remove(entity)
-                self._switched_off_by_automoli.add(entity)
+                if entity not in self._switched_off_by_automoli:
+                    self._switched_off_by_automoli.add(entity)
 
         # turn lights on again in 1s
-        if did_something:
+        if at_least_one_turned_off:
             self.run_in(self.warning_flash_on, 1)
 
     def warning_flash_on(self, _: dict[str, Any] | None = None) -> None:
@@ -1776,7 +1741,8 @@ class AutoMoLi(hass.Hass):  # type: ignore
             )  # type:ignore
             if entity in self._switched_off_by_automoli:
                 self._switched_off_by_automoli.remove(entity)
-            self._switched_on_by_automoli.add(entity)
+            if entity not in self._switched_on_by_automoli:
+                self._switched_on_by_automoli.add(entity)
         self._warning_lights.clear()
 
     def find_sensors(
