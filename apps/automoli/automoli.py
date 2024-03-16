@@ -274,6 +274,8 @@ class AutoMoLi(hass.Hass):  # type: ignore
             level=logging.DEBUG,
         )
 
+        self.profile = bool(self.getarg("profile", False))
+
         # python version check
         if not py39_or_higher:
             self.lg("")
@@ -791,6 +793,9 @@ class AutoMoLi(hass.Hass):  # type: ignore
         maps the `state_changed` callback of a motion sensors changing to "detected"
         to the `event` callback`
         """
+        if self.profile:
+            start_time = self.datetime()
+            self.lg(f"{stack()[0][3]}: Started profile")
 
         if logging.DEBUG >= self.loglevel:
             self.lg(
@@ -812,8 +817,17 @@ class AutoMoLi(hass.Hass):  # type: ignore
         data: dict[str, Any] = {"entity_id": entity, "new": new, "old": old}
         self.motion_event("motion_state_changed_detection", data, kwargs)
 
+        if self.profile:
+            end_time = self.datetime()
+            self.lg(
+                f"{stack()[0][3]}: Ended profile, running time = {end_time - start_time}"
+            )
+
     def motion_event(self, event: str, data: dict[str, str], _: dict[str, Any]) -> None:
         """Main handler for motion events."""
+        if self.profile:
+            start_time = self.datetime()
+            self.lg(f"{stack()[0][3]}: Started profile")
 
         # Process motion event even if AutoMoLi is currently blocked/disabled
         # is_blocked and is_disabled checked during lights_on and lights_off calls
@@ -863,6 +877,12 @@ class AutoMoLi(hass.Hass):  # type: ignore
 
         if event != "motion_state_changed_detection":
             self.refresh_timer()
+
+        if self.profile:
+            end_time = self.datetime()
+            self.lg(
+                f"{stack()[0][3]}: Ended profile, running time = {end_time - start_time}"
+            )
 
     def outside_change_detected(
         self,
@@ -1007,6 +1027,9 @@ class AutoMoLi(hass.Hass):  # type: ignore
 
     def clear_handles(self, handles: set[str] = None) -> None:
         """clear scheduled timers/callbacks."""
+        if self.profile:
+            start_time = self.datetime()
+            self.lg(f"{stack()[0][3]}: Started profile")
 
         if not handles:
             handles = deepcopy(self.room.handles_automoli)
@@ -1028,8 +1051,17 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 f"{stack()[0][3]}: cancelled scheduled callbacks", level=logging.DEBUG
             )
 
+        if self.profile:
+            end_time = self.datetime()
+            self.lg(
+                f"{stack()[0][3]}: Ended profile, running time = {end_time - start_time}"
+            )
+
     def refresh_timer(self, refresh_type: str = "normal") -> None:
         """refresh delay timer."""
+        if self.profile:
+            start_time = self.datetime()
+            self.lg(f"{stack()[0][3]}: Started profile")
 
         # leave dimming state
         self.dimming = False
@@ -1103,6 +1135,12 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 level=logging.DEBUG,
             )
 
+        if self.profile:
+            end_time = self.datetime()
+            self.lg(
+                f"{stack()[0][3]}: Ended profile, running time = {end_time - start_time}"
+            )
+
     def update_delay(
         self, entity: str, attribute: str, old: str, new: str, _: dict[str, Any]
     ) -> None:
@@ -1127,6 +1165,10 @@ class AutoMoLi(hass.Hass):  # type: ignore
 
     def is_disabled(self, onoff: str = None) -> bool:
         """check if automoli is disabled via home assistant entity"""
+        if self.profile:
+            start_time = self.datetime()
+            self.lg(f"{stack()[0][3]}: Started profile")
+
         for entity in self.disable_switch_entities:
             if (
                 state := self.get_state(entity, copy=False)
@@ -1140,6 +1182,11 @@ class AutoMoLi(hass.Hass):  # type: ignore
                         f"{APP_NAME} is disabled by {self.get_name(entity)} with state '{state}'"
                     )
                 self.run_in(self.update_room_stats, 1, stat="disabled", entity=entity)
+                if self.profile:
+                    end_time = self.datetime()
+                    self.lg(
+                        f"{stack()[0][3]}: Ended profile, running time = {end_time - start_time}"
+                    )
                 return True
 
         # or because currently in cooldown period after an outside change
@@ -1150,11 +1197,26 @@ class AutoMoLi(hass.Hass):  # type: ignore
             self.run_in(
                 self.update_room_stats, 1, stat="disabled", entity="Cooling down"
             )
+            if self.profile:
+                end_time = self.datetime()
+                self.lg(
+                    f"{stack()[0][3]}: Ended profile, running time = {end_time - start_time}"
+                )
             return True
+
+        if self.profile:
+            end_time = self.datetime()
+            self.lg(
+                f"{stack()[0][3]}: Ended profile, running time = {end_time - start_time}"
+            )
 
         return False
 
     def is_blocked(self, onoff: str = None) -> bool:
+        if self.profile:
+            start_time = self.datetime()
+            self.lg(f"{stack()[0][3]}: Started profile")
+
         if onoff == "on":
             for entity in self.block_on_switch_entities:
                 if (
@@ -1170,6 +1232,11 @@ class AutoMoLi(hass.Hass):  # type: ignore
                     self.run_in(
                         self.update_room_stats, 1, stat="blockedOn", entity=entity
                     )
+                    if self.profile:
+                        end_time = self.datetime()
+                        self.lg(
+                            f"{stack()[0][3]}: Ended profile, running time = {end_time - start_time}"
+                        )
                     return True
         elif onoff == "off":
             # the "shower case"
@@ -1205,6 +1272,11 @@ class AutoMoLi(hass.Hass):  # type: ignore
                         self.run_in(
                             self.update_room_stats, 1, stat="blockedOff", entity=sensor
                         )
+                        if self.profile:
+                            end_time = self.datetime()
+                            self.lg(
+                                f"{stack()[0][3]}: Ended profile, running time = {end_time - start_time}"
+                            )
                         return True
             # other entities
             for entity in self.block_off_switch_entities:
@@ -1222,7 +1294,17 @@ class AutoMoLi(hass.Hass):  # type: ignore
                     self.run_in(
                         self.update_room_stats, 1, stat="blockedOff", entity=entity
                     )
+                    if self.profile:
+                        end_time = self.datetime()
+                        self.lg(
+                            f"{stack()[0][3]}: Ended profile, running time = {end_time - start_time}"
+                        )
                     return True
+        if self.profile:
+            end_time = self.datetime()
+            self.lg(
+                f"{stack()[0][3]}: Ended profile, running time = {end_time - start_time}"
+            )
         return False
 
     def dim_lights(self, kwargs: dict[str, Any]) -> None:
@@ -1347,6 +1429,9 @@ class AutoMoLi(hass.Hass):  # type: ignore
 
     def lights_on(self, source: str = "<unknown>", force: bool = False) -> None:
         """Turn on the lights."""
+        if self.profile:
+            start_time = self.datetime()
+            self.lg(f"{stack()[0][3]}: Started profile")
 
         # check logging level here first to avoid duplicate log entries when not debug logging
         if logging.DEBUG >= self.loglevel:
@@ -1357,6 +1442,11 @@ class AutoMoLi(hass.Hass):  # type: ignore
 
         # check if automoli is disabled via home assistant entity or blockers
         if self.is_disabled(onoff="on") or self.is_blocked(onoff="on"):
+            if self.profile:
+                end_time = self.datetime()
+                self.lg(
+                    f"{stack()[0][3]}: Ended profile with disabled/blocked, running time = {end_time - start_time}"
+                )
             return
 
         if logging.DEBUG >= self.loglevel:
@@ -1388,6 +1478,11 @@ class AutoMoLi(hass.Hass):  # type: ignore
                             f"According to {hl(sensor)} its already bright enough ¯\\_(ツ)_/¯"
                             f" | {illuminance} >= {illuminance_threshold}"
                         )
+                        if self.profile:
+                            end_time = self.datetime()
+                            self.lg(
+                                f"{stack()[0][3]}: Ended profile with illuminance threshold, running time = {end_time - start_time}"
+                            )
                         return
 
                 except ValueError as error:
@@ -1547,6 +1642,12 @@ class AutoMoLi(hass.Hass):  # type: ignore
         else:
             raise ValueError(
                 f"invalid brightness/scene: {light_setting!s} " f"in {self.room}"
+            )
+
+        if self.profile:
+            end_time = self.datetime()
+            self.lg(
+                f"{stack()[0][3]}: Ended profile, running time = {end_time - start_time}"
             )
 
     def lights_off(self, kwargs: dict[str, Any]) -> None:
