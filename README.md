@@ -47,7 +47,7 @@ livingroom:
 
     - { starttime: "22:30", name: night, light: 20 }
 
-      # This rule has the lights set to 0, so they will no turn on during this time period
+      # This rule has the lights set to 0, so they will not turn on during this time period
     - { starttime: "23:30", name: more_night, light: 0 }
 
   # If you are using an illuminance sensor you can set the lowest value here that blocks the lights turning on if its already light enough
