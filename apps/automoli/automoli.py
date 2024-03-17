@@ -794,8 +794,8 @@ class AutoMoLi(hass.Hass):  # type: ignore
         to the `event` callback`
         """
         if self.profile:
+            self.lg(f"{stack()[0][3]}: Starting profile")
             start_time = self.datetime()
-            self.lg(f"{stack()[0][3]}: Started profile")
 
         if logging.DEBUG >= self.loglevel:
             self.lg(
@@ -826,8 +826,8 @@ class AutoMoLi(hass.Hass):  # type: ignore
     def motion_event(self, event: str, data: dict[str, str], _: dict[str, Any]) -> None:
         """Main handler for motion events."""
         if self.profile:
+            self.lg(f"{stack()[0][3]}: Starting profile")
             start_time = self.datetime()
-            self.lg(f"{stack()[0][3]}: Started profile")
 
         # Process motion event even if AutoMoLi is currently blocked/disabled
         # is_blocked and is_disabled checked during lights_on and lights_off calls
@@ -1028,8 +1028,8 @@ class AutoMoLi(hass.Hass):  # type: ignore
     def clear_handles(self, handles: set[str] = None) -> None:
         """clear scheduled timers/callbacks."""
         if self.profile:
+            self.lg(f"{stack()[0][3]}: Starting profile")
             start_time = self.datetime()
-            self.lg(f"{stack()[0][3]}: Started profile")
 
         if not handles:
             handles = deepcopy(self.room.handles_automoli)
@@ -1060,8 +1060,8 @@ class AutoMoLi(hass.Hass):  # type: ignore
     def refresh_timer(self, refresh_type: str = "normal") -> None:
         """refresh delay timer."""
         if self.profile:
+            self.lg(f"{stack()[0][3]}: Starting profile")
             start_time = self.datetime()
-            self.lg(f"{stack()[0][3]}: Started profile")
 
         # leave dimming state
         self.dimming = False
@@ -1166,8 +1166,8 @@ class AutoMoLi(hass.Hass):  # type: ignore
     def is_disabled(self, onoff: str = None) -> bool:
         """check if automoli is disabled via home assistant entity"""
         if self.profile:
+            self.lg(f"{stack()[0][3]}: Starting profile")
             start_time = self.datetime()
-            self.lg(f"{stack()[0][3]}: Started profile")
 
         for entity in self.disable_switch_entities:
             if (
@@ -1214,8 +1214,8 @@ class AutoMoLi(hass.Hass):  # type: ignore
 
     def is_blocked(self, onoff: str = None) -> bool:
         if self.profile:
+            self.lg(f"{stack()[0][3]}: Starting profile")
             start_time = self.datetime()
-            self.lg(f"{stack()[0][3]}: Started profile")
 
         if onoff == "on":
             for entity in self.block_on_switch_entities:
@@ -1430,8 +1430,8 @@ class AutoMoLi(hass.Hass):  # type: ignore
     def lights_on(self, source: str = "<unknown>", force: bool = False) -> None:
         """Turn on the lights."""
         if self.profile:
+            self.lg(f"{stack()[0][3]}: Starting profile")
             start_time = self.datetime()
-            self.lg(f"{stack()[0][3]}: Started profile")
 
         # check logging level here first to avoid duplicate log entries when not debug logging
         if logging.DEBUG >= self.loglevel:
