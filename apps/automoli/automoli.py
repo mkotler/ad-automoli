@@ -1232,10 +1232,9 @@ class AutoMoLi(hass.Hass):  # type: ignore
         return False
 
     def dim_lights(self, kwargs: dict[str, Any]) -> None:
-        # TODO: I do not believe this code ever worked because room.lights_dimmable and
-        # room.lights_undimmable are never actually set.  Therefore, this code will always
-        # turn the lights off with the "workaround" defined below.  If ever get around to fixing,
-        # make sure to update the README file to add dim argument.
+        # Note: lights_dimmable, lights_undimmable, and natural_time are defined in the imported library adutils
+        # TODO: This codepath has not been tested / exercised in a while. Need to ensure logic still holds and
+        # works as expected.
 
         message: str = ""
 
@@ -1340,7 +1339,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
         self.lg(message, icon=OFF_ICON)
 
     def turn_off_lights(self, kwargs: dict[str, Any]) -> None:
-        # Note: Today this is only called from the dim_lights function. Normally,
+        # Note: This is only called from the dim_lights function. Normally,
         # turned_off is called from lights_off.
         if lights := kwargs.get("lights"):
             self.lg(f"{stack()[0][3]}: {lights = }", level=logging.DEBUG)
