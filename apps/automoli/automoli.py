@@ -207,6 +207,9 @@ class AutoMoLi(hass.Hass):  # type: ignore
             msg=f"{msg}", level=level, icon=icon, repeat=repeat, log_to_ha=log_to_ha
         )
 
+    # listr will always return a set but can be cast into a list.  This is done
+    # in this file because lists provide slight performance gains when only looping
+    # through them but sets provide significant performance gains when doing a lookup.
     def listr(
         self,
         list_or_string: list[str] | set[str] | str | Any,
@@ -285,12 +288,24 @@ class AutoMoLi(hass.Hass):  # type: ignore
             self.lg("", icon=ALERT_ICON)
             self.lg("")
             self.lg(
-                f" please update to {hl('Python >= 3.8')} at least! 🤪", icon=icon_alert
+                f" please update to {hl('Python >= 3.8')} at least! 🤪", icon=ALERT_ICON
             )
             self.lg("")
             self.lg("", icon=ALERT_ICON)
         if not py37_or_higher:
             raise ValueError
+
+        # appdaemon version check
+        if not self.has_min_ad_version("4.0.7"):
+            self.lg("", icon=ALERT_ICON)
+            self.lg("")
+            self.lg(
+                f" please update to {hl('AppDaemon >= 4.0.7')} at least! 🤪",
+                icon=ALERT_ICON,
+            )
+            self.lg("")
+            self.lg("", icon=ALERT_ICON)
+            return
 
         # set room, use the app name if "room" is not defined
         self.room_name = (
@@ -353,22 +368,22 @@ class AutoMoLi(hass.Hass):  # type: ignore
             self.night_mode = self.configure_night_mode(night_mode)
 
         # on/off switch via input.boolean
-        self.disable_switch_entities: set[str] = self.listr(
-            self.getarg("disable_switch_entities", set())
+        self.disable_switch_entities: list[str] = list(
+            self.listr(self.getarg("disable_switch_entities", set()))
         )
         self.disable_switch_states: set[str] = self.listr(
             self.getarg("disable_switch_states", set(["off"])), False
         )
 
         # additional sensors that will block turning on or off lights
-        self.block_on_switch_entities: set[str] = self.listr(
-            self.getarg("block_on_switch_entities", set())
+        self.block_on_switch_entities: list[str] = list(
+            self.listr(self.getarg("block_on_switch_entities", set()))
         )
         self.block_on_switch_states: set[str] = self.listr(
             self.getarg("block_on_switch_states", set(["off"])), False
         )
-        self.block_off_switch_entities: set[str] = self.listr(
-            self.getarg("block_off_switch_entities", set())
+        self.block_off_switch_entities: list[str] = list(
+            self.listr(self.getarg("block_off_switch_entities", set()))
         )
         self.block_off_switch_states: set[str] = self.listr(
             self.getarg("block_off_switch_states", set(["off"])), False
@@ -420,7 +435,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
         states = self.get_state()
 
         # define light entities switched by automoli
-        self.lights: set[str] = self.listr(self.getarg("lights", set()))
+        self.lights: list[str] = list(self.listr(self.getarg("lights", set())))
 
         # warn and remove scenes and scripts from lights and recommend using after_on or after_off
         scene_or_script_found = False
@@ -694,6 +709,12 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 source="Off at restart",
             )
 
+    def has_min_ad_version(self, required_version: str) -> bool:
+        required_version = required_version if required_version else "4.0.7"
+        return bool(
+            StrictVersion(self.get_ad_version()) >= StrictVersion(required_version)
+        )
+
     def switch_daytime(self, kwargs: dict[str, Any]) -> None:
         """Set new light settings according to daytime."""
 
@@ -797,7 +818,9 @@ class AutoMoLi(hass.Hass):  # type: ignore
             self.lg(f"{stack()[0][3]}: Starting profile")
             start_time = self.datetime()
 
-        if logging.DEBUG >= self.loglevel:
+        log = logging.DEBUG >= self.loglevel
+
+        if log:
             self.lg(
                 f"{stack()[0][3]}: {entity} changed {attribute} from {old} to {new}",
                 level=logging.DEBUG,
@@ -806,7 +829,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
         # cancel scheduled callbacks
         self.clear_handles()
 
-        if logging.DEBUG >= self.loglevel:
+        if log:
             self.lg(
                 f"{stack()[0][3]}: handles cleared and cancelled all scheduled timers"
                 f" | {self.dimming = }",
@@ -815,7 +838,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
 
         # calling motion event handler
         data: dict[str, Any] = {"entity_id": entity, "new": new, "old": old}
-        self.motion_event("motion_state_changed_detection", data, kwargs)
+        self.motion_event("motion_detected", data, kwargs)
 
         if self.profile:
             end_time = self.datetime()
@@ -833,49 +856,27 @@ class AutoMoLi(hass.Hass):  # type: ignore
         # is_blocked and is_disabled checked during lights_on and lights_off calls
         motion_trigger = data["entity_id"].replace(EntityType.MOTION.prefix, "")
         self.run_in(self.update_room_stats, 1, stat="motion", entity=motion_trigger)
+
         if logging.DEBUG >= self.loglevel:
             self.lg(
                 f"{stack()[0][3]}: received '{hl(event)}' event from "
                 f"'{motion_trigger}' | {self.dimming = }",
                 level=logging.DEBUG,
             )
-
-        # If current daytime is a scene or script then force a change even if all the lights are on
-        dt_light_setting = self.active.get("light_setting")
-        force = isinstance(dt_light_setting, str) and (
-            dt_light_setting.startswith("scene.")
-            or dt_light_setting.startswith("script.")
-        )
-
-        refresh = ""
-        if event != "motion_state_changed_detection":
-            refresh = " → refreshing timer"
-
-        if self.dimming or not all(
-            [self.get_state(light, copy=False) == "on" for light in self.lights]
-        ):
-            if logging.DEBUG >= self.loglevel:
-                self.lg(
-                    f"{stack()[0][3]}: switching on | {self.dimming = }",
-                    level=logging.DEBUG,
-                )
-            self.lights_on(source=motion_trigger)
-        elif force:
-            if logging.DEBUG >= self.loglevel:
-                self.lg(
-                    f"{stack()[0][3]}: {self.room.name.replace('_',' ').title()} is on but still forcing an update "
-                    f"because active daytime includes a scene or script {refresh} | {self.dimming = }",
-                    level=logging.DEBUG,
-                )
-            self.lights_on(source=motion_trigger, force=force)
-        else:
+            refresh = ""
+            if event != "motion_detected":
+                refresh = "and then refresh timer "
             self.lg(
-                f"{stack()[0][3]}: lights in {self.room.name.replace('_',' ').title()} already on {refresh}"
-                f" | {self.dimming = }",
+                f"{stack()[0][3]}: ready to switch on lights {refresh}",
                 level=logging.DEBUG,
             )
 
-        if event != "motion_state_changed_detection":
+        self.lights_on(source=motion_trigger)
+
+        # If motion_event was called from Home Assistant then will not receive a separate motion_cleared event
+        # and need to refresh the timers here. Otherwise, called from motion_detected and motion_cleared event
+        # will follow which will call refresh_timer.
+        if event != "motion_detected":
             self.refresh_timer()
 
         if self.profile:
@@ -1019,29 +1020,27 @@ class AutoMoLi(hass.Hass):  # type: ignore
     def cooldown_off(self, _: dict[str, Any] | None = None) -> None:
         self.cooling_down = False
 
-    def has_min_ad_version(self, required_version: str) -> bool:
-        required_version = required_version if required_version else "4.0.7"
-        return bool(
-            StrictVersion(self.get_ad_version()) >= StrictVersion(required_version)
-        )
-
     def clear_handles(self, handles: set[str] = None) -> None:
         """clear scheduled timers/callbacks."""
         if self.profile:
             self.lg(f"{stack()[0][3]}: Starting profile")
             start_time = self.datetime()
 
+        clear = False
         if not handles:
-            handles = deepcopy(self.room.handles_automoli)
-            self.room.handles_automoli.clear()
+            handles = self.room.handles_automoli
+            clear = True
 
-        if self.has_min_ad_version("4.0.7"):
-            for handle in handles:
-                if self.timer_running(handle):
-                    self.cancel_timer(handle)
-        else:
-            for handle in handles:
-                self.cancel_timer(handle)
+        # getting function references for small performance gain below
+        timer_running = self.timer_running
+        cancel_timer = self.cancel_timer
+
+        for handle in handles:
+            if timer_running(handle):
+                cancel_timer(handle)
+
+        if clear:
+            self.room.handles_automoli.clear()
 
         # reset override delay status
         self.override_delay_active = False
@@ -1169,9 +1168,12 @@ class AutoMoLi(hass.Hass):  # type: ignore
             self.lg(f"{stack()[0][3]}: Starting profile")
             start_time = self.datetime()
 
+        # getting function reference to get_state for small performance gain during for loop
+        get_state = self.get_state
+
         for entity in self.disable_switch_entities:
             if (
-                state := self.get_state(entity, copy=False)
+                state := get_state(entity, copy=False)
             ) and state in self.disable_switch_states:
                 # Refresh timer if disabling lights from turning off
                 if onoff == "off":
@@ -1217,10 +1219,13 @@ class AutoMoLi(hass.Hass):  # type: ignore
             self.lg(f"{stack()[0][3]}: Starting profile")
             start_time = self.datetime()
 
+        # getting function reference to get_state for small performance gain during for loop
+        get_state = self.get_state
+
         if onoff == "on":
             for entity in self.block_on_switch_entities:
                 if (
-                    state := self.get_state(entity, copy=False)
+                    state := get_state(entity, copy=False)
                 ) and state in self.block_on_switch_states:
                     # Do not need to refresh timer when blocking lights turning on
                     # Only log first time blocked
@@ -1281,7 +1286,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
             # other entities
             for entity in self.block_off_switch_entities:
                 if (
-                    state := self.get_state(entity, copy=False)
+                    state := get_state(entity, copy=False)
                 ) and state in self.block_off_switch_states:
                     self.refresh_timer()
                     # Only log first time blocked
@@ -1433,8 +1438,10 @@ class AutoMoLi(hass.Hass):  # type: ignore
             self.lg(f"{stack()[0][3]}: Starting profile")
             start_time = self.datetime()
 
+        log = logging.DEBUG >= self.loglevel
+
         # check logging level here first to avoid duplicate log entries when not debug logging
-        if logging.DEBUG >= self.loglevel:
+        if log:
             self.lg(
                 f"{stack()[0][3]}: {self.is_disabled(onoff='on') = } | {self.is_blocked(onoff='on') = } | {self.dimming = }",
                 level=logging.DEBUG,
@@ -1449,7 +1456,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 )
             return
 
-        if logging.DEBUG >= self.loglevel:
+        if log:
             self.lg(
                 f"{stack()[0][3]}: {self.thresholds.get(EntityType.ILLUMINANCE.idx) = }"
                 f" | {self.dimming = } | {force = } | {bool(force or self.dimming) = }",
@@ -1458,20 +1465,27 @@ class AutoMoLi(hass.Hass):  # type: ignore
 
         force = bool(force or self.dimming)
 
+        # getting function references for small performance gain below
+        get_state = self.get_state
+        call_service = self.call_service
+        is_hue_group = self.active["is_hue_group"]
+        lights = self.lights
+
         if illuminance_threshold := self.thresholds.get(EntityType.ILLUMINANCE.idx):
 
             # the "eco mode" check
-            for sensor in self.sensors[EntityType.ILLUMINANCE.idx]:
-                if logging.DEBUG >= self.loglevel:
+            sensors = self.sensors[EntityType.ILLUMINANCE.idx]
+            for sensor in sensors:
+                if log:
                     self.lg(
-                        f"{stack()[0][3]}: {self.thresholds.get(EntityType.ILLUMINANCE.idx) = } | "
-                        f"{float(self.get_state(sensor, copy=False)) = }",  # type:ignore
+                        f"{stack()[0][3]}: {illuminance_threshold = } | "
+                        f"{float(get_state(sensor, copy=False)) = }",  # type:ignore
                         level=logging.DEBUG,
                     )
                 try:
                     if (
                         illuminance := float(
-                            self.get_state(sensor)  # type:ignore
+                            get_state(sensor)  # type:ignore
                         )  # type:ignore
                     ) >= illuminance_threshold:
                         self.lg(
@@ -1487,7 +1501,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
 
                 except ValueError as error:
                     self.lg(
-                        f"Could not parse illuminance '{self.get_state(sensor, copy=False)}' "
+                        f"Could not parse illuminance '{get_state(sensor, copy=False)}' "
                         f"from '{sensor}': {error}"
                     )
                     return
@@ -1503,18 +1517,18 @@ class AutoMoLi(hass.Hass):  # type: ignore
         if isinstance(light_setting, str):
 
             # Start by iterating through all of the lights and turn them on
-            for entity in self.lights:
-                if logging.DEBUG >= self.loglevel:
+            for entity in lights:
+                if log:
                     self.lg(
                         f"{stack()[0][3]}: entity: {entity} | startswith: {entity.split('.')[0]} | "
-                        f"is_hue_group: {self.active['is_hue_group'] and self.get_state(entity_id=entity, attribute='is_hue_group')} | "
+                        f"is_hue_group: {self.active['is_hue_group'] and get_state(entity_id=entity, attribute='is_hue_group')} | "
                         f"switched_on_by_automoli: {entity in self._switched_on_by_automoli}",
                         level=logging.DEBUG,
                     )
-                if self.active["is_hue_group"] and self.get_state(
+                if is_hue_group and get_state(
                     entity_id=entity, attribute="is_hue_group"
                 ):
-                    self.call_service(
+                    call_service(
                         "hue/hue_activate_scene",
                         group_name=self.friendly_name(entity),  # type:ignore
                         scene_name=light_setting,  # type:ignore
@@ -1525,8 +1539,8 @@ class AutoMoLi(hass.Hass):  # type: ignore
                     if entity in self._switched_off_by_automoli:
                         self._switched_off_by_automoli.remove(entity)
                     at_least_one_turned_on = True
-                elif self.get_state(entity, copy=False) == "off":
-                    self.call_service(
+                elif get_state(entity, copy=False) == "off":
+                    call_service(
                         "homeassistant/turn_on", entity_id=entity  # type:ignore
                     )
                     if not entity in self._switched_on_by_automoli:
@@ -1539,7 +1553,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
             if light_setting.startswith("scene.") or light_setting.startswith(
                 "script."
             ):
-                self.call_service(
+                call_service(
                     "homeassistant/turn_on", entity_id=light_setting  # type:ignore
                 )
 
@@ -1567,15 +1581,17 @@ class AutoMoLi(hass.Hass):  # type: ignore
                     )
                     self.turn_on_entities(self.after_on)
 
+            else:
+                self.lg(
+                    f"{stack()[0][3]}: lights in {self.room.name.replace('_',' ').title()} were already on"
+                    f" | {self.dimming = }",
+                    level=logging.DEBUG,
+                )
+
         elif isinstance(light_setting, int):
 
             if light_setting == 0:
-                if all(
-                    [
-                        self.get_state(entity, copy=False) == "off"
-                        for entity in self.lights
-                    ]
-                ):
+                if all([get_state(entity, copy=False) == "off" for entity in lights]):
                     self.lg(
                         f"{stack()[0][3]}: no lights turned on because current 'daytime' light setting is 0",
                         level=logging.DEBUG,
@@ -1584,16 +1600,16 @@ class AutoMoLi(hass.Hass):  # type: ignore
                     self.run_in(self.lights_off, 0, daytimeChange=True)
 
             else:
-                for entity in self.lights:
-                    if logging.DEBUG >= self.loglevel:
+                for entity in lights:
+                    if log:
                         self.lg(
                             f"{stack()[0][3]}: entity: {entity} | startswith: {entity.split('.')[0]} | switched_on_by_automoli: {entity in self._switched_on_by_automoli}",
                             level=logging.DEBUG,
                         )
-                    state = self.get_state(entity, copy=False)
+                    state = get_state(entity, copy=False)
                     is_light = entity.startswith("light")
                     if is_light and (force or state == "off"):
-                        self.call_service(
+                        call_service(
                             "homeassistant/turn_on",
                             entity_id=entity,  # type:ignore
                             brightness_pct=light_setting,  # type:ignore
@@ -1606,7 +1622,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
 
                     # Otherwise turn on any lights that are off
                     elif not is_light and state == "off":
-                        self.call_service(
+                        call_service(
                             "homeassistant/turn_on", entity_id=entity  # type:ignore
                         )
                         if not entity in self._switched_on_by_automoli:
@@ -1639,6 +1655,14 @@ class AutoMoLi(hass.Hass):  # type: ignore
                             level=logging.DEBUG,
                         )
                         self.turn_on_entities(self.after_on)
+
+                else:
+                    self.lg(
+                        f"{stack()[0][3]}: lights in {self.room.name.replace('_',' ').title()} were already on"
+                        f" | {self.dimming = }",
+                        level=logging.DEBUG,
+                    )
+
         else:
             raise ValueError(
                 f"invalid brightness/scene: {light_setting!s} " f"in {self.room}"
