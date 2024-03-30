@@ -798,8 +798,8 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 f"{stack()[0][3]}: {entity} changed {attribute} from {old} to {new}",
                 level=logging.DEBUG,
             )
-            self.refresh_timer(refresh_type="motion_cleared")
             self.run_in(self.update_room_stats, 0, stat="motion_cleared", entity=entity)
+            self.refresh_timer(refresh_type="motion_cleared")
         else:
             # cancel scheduled callbacks
             self.clear_handles()
@@ -1369,11 +1369,9 @@ class AutoMoLi(hass.Hass):  # type: ignore
         if log:
             self.lg(
                 f"{stack()[0][3]}: {self.thresholds.get(EntityType.ILLUMINANCE.idx) = }"
-                f" | {self.dimming = } | {force = } | {bool(force or self.dimming) = }",
+                f" | {self.dimming = } | {force = }",
                 level=logging.DEBUG,
             )
-
-        force = bool(force or self.dimming)
 
         # getting function references for small performance gain below
         get_state = self.get_state
@@ -1501,7 +1499,8 @@ class AutoMoLi(hass.Hass):  # type: ignore
                         f"{stack()[0][3]}: no lights turned on because current 'daytime' light setting is 0",
                         level=logging.DEBUG,
                     )
-                else:
+                # if lights are on only turn them off if force is true (there is a daytime change)
+                elif force:
                     self.run_in(self.lights_off, 0, daytimeChange=True)
 
             else:
@@ -1513,7 +1512,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
                         )
                     state = get_state(entity, copy=False)
                     is_light = entity.startswith("light")
-                    if is_light and (force or state == "off"):
+                    if is_light and (force or self.dimming or state == "off"):
                         call_service(
                             "homeassistant/turn_on",
                             entity_id=entity,  # type:ignore
@@ -2249,6 +2248,9 @@ class AutoMoLi(hass.Hass):  # type: ignore
             self.sensor_attr["last_motion_cleared"] = currentTimeStr
             self.sensor_attr["last_motion_by"] = self.get_name(kwargs.get("entity"))
             self.sensor_attr.pop("last_motion_detected", "")
+            # Clearing "Waiting for motion to clear" before refresh timer call
+            # sets real turning_off_at time
+            self.sensor_attr.pop("turning_off_at", "")
 
         elif stat == "lastOn":
             self.sensor_state = "on"
