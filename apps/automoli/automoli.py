@@ -1649,14 +1649,18 @@ class AutoMoLi(hass.Hass):  # type: ignore
         # app: https://github.com/wernerhp/appdaemon_aqara_motion_sensors
         # mod:
         # https://community.smartthings.com/t/making-xiaomi-motion-sensor-a-super-motion-sensor/139806
-        for sensor in self.sensors[EntityType.MOTION.idx]:
-            self.set_state(
-                sensor,
-                state="off",
-                attributes=(self.get_state(sensor, attribute="all")).get(
-                    "attributes", {}
-                ),
-            )
+        #
+        # This code may work for these "super motion" sensors but may cause errors for other sensors.
+        # If setup only uses these sensors then uncomment the following code.
+        #
+        # for sensor in self.sensors[EntityType.MOTION.idx]:
+        #     self.set_state(
+        #         sensor,
+        #         state="off",
+        #         attributes=(self.get_state(sensor, attribute="all")).get(
+        #             "attributes", {}
+        #         ),
+        #     )
 
         if at_least_one_error:
             self.lg(
@@ -1779,10 +1783,10 @@ class AutoMoLi(hass.Hass):  # type: ignore
                     "homeassistant/turn_off", entity_id=entity  # type:ignore
                 )  # type:ignore
                 at_least_one_turned_off = True
+                if not entity in self._switched_off_by_automoli:
+                    self._switched_off_by_automoli.add(entity)
                 if entity in self._switched_on_by_automoli:
                     self._switched_on_by_automoli.remove(entity)
-                if entity not in self._switched_off_by_automoli:
-                    self._switched_off_by_automoli.add(entity)
 
         # turn lights on again in 1s
         if at_least_one_turned_off:
@@ -1794,10 +1798,10 @@ class AutoMoLi(hass.Hass):  # type: ignore
             self.call_service(
                 "homeassistant/turn_on", entity_id=entity  # type:ignore
             )  # type:ignore
+            if not entity in self._switched_on_by_automoli:
+                self._switched_on_by_automoli.add(entity)
             if entity in self._switched_off_by_automoli:
                 self._switched_off_by_automoli.remove(entity)
-            if entity not in self._switched_on_by_automoli:
-                self._switched_on_by_automoli.add(entity)
         self._warning_lights.clear()
 
     def find_sensors(
