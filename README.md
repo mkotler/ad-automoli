@@ -154,7 +154,7 @@ key | optional | type | default | description
 `override_delay_entities` | True | list/string |  | One ore more Home Assistant Entities that when a state change to "on" happens will override the delay (e.g., opening a door would reduce the timer to default 60 seconds for turning off the room's  lights )
 `override_delay` | True | integer | 60 | Seconds to update delay to when one of the entities in `override_delay_entities` changes its state to "on"
 `warning_flash` | True | boolean | false | Flash the lights (off and then on) 60 seconds before AutoMoLi will turn them off
-`debug_log` | True | bool | false | Activate debug logging (for this room)
+`debug_log` | True | bool | false | Activate debug logging (for this room). To start logging without updating the configuration, you can also create an input boolean helper in Home Assistant named `input_boolean.automoli_force_logging` and AutoMoLi will start logging when it turns "on".  
 `colorize_logging` | True | bool | True | Use ANSI colors in the log. On by default but can be turned off to remove escape codes for viewers that do not support coloring. 
 `track_room_stats` | True | boolean | false | Create sensors to show room statistics and print a daily summary in the log at midnight for how long lights were on that day. Even if this is false, firing the event "automoli_stats" will print a summary manually. 
 
