@@ -115,8 +115,8 @@ key | optional | type | default | description
 `daytimes` | True | list | *see code* | Different daytimes with light settings (see below)
 `lights` | True | list/string | *auto detect* | Light entities that are both turned on and off by automoli
 `motion` | True | list/string | *auto detect* | Motion sensor entities
-`motion_state_on` | True | integer | | If using motion sensors which don't send events if already activated, like Xiaomi do with the Xiaomi Gateway (Aqara) integration, add this to your config with "on". This will listen to state changes instead
-`motion_state_off` | True | integer | | If using motion sensors which don't send events if already activated, like Xiaomi do with the Xiaomi Gateway (Aqara) integration, add this to your config with "off". This will listen to the state changes instead
+`motion_state_on` | True | integer | | If using motion sensors that don't send events when activated (currently AutoMoLi only handles events Aqara or Xiaomi sensors with the Aqara Gateway integration), add this to your config with "on". This will listen to state changes instead.
+`motion_state_off` | True | integer | | Paired with `motion_state_on` AutoMoLi will listen to state changes when a motion event isn't sent (from the Aqara Gateway integration)
 `illuminance` | True | list/string |  | Illuminance sensor entities
 `illuminance_threshold` | True | integer |  | If illuminance is *above* this value, lights will *not switched on*
 `humidity` | True | list/string |  | Humidity sensor entities
