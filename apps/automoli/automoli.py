@@ -978,7 +978,13 @@ class AutoMoLi(hass.Hass):  # type: ignore
         )
 
         # ensure the change wasn't because of automoli
-        if (state == "on" and entity in self._switched_on_by_automoli) or (
+        if (
+            state == "on"
+            and (
+                entity in self._switched_on_by_automoli
+                or entity in self._warning_lights
+            )
+        ) or (
             state == "off"
             and (
                 entity in self._switched_off_by_automoli
@@ -2082,7 +2088,9 @@ class AutoMoLi(hass.Hass):  # type: ignore
             self.call_service(
                 "homeassistant/turn_on", entity_id=entity  # type:ignore
             )  # type:ignore
-        self._warning_lights.clear()
+        # wait 1 second to clear the variable that held the lights to turn back on;
+        # the wait is so outside_change_detected will recognize that this was done by AutoMoLi
+        self.run_in(lambda kwargs: self._warning_lights.clear(), 1)
 
     def find_sensors(
         self, keyword: str, room_name: str, states: dict[str, dict[str, Any]]
