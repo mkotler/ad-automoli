@@ -1154,13 +1154,16 @@ class AutoMoLi(hass.Hass):  # type: ignore
                     f"{stack()[0][3]} | Handles cleared and cancelled all scheduled timers",
                     level=logging.DEBUG,
                 )
-                self.run_in(
-                    self.update_room_stats,
-                    DEFAULT_UPDATE_STATS_DELAY,
-                    stat="lastOff",
-                    howChanged=how,
-                    source=source,
-                )
+                # update stats to set room off when this is the last light turned off and
+                # the room was on before this light was turned off (i.e., it wasn't in a NOT_READY_STATE)
+                if self.sensor_state == "on":
+                    self.run_in(
+                        self.update_room_stats,
+                        DEFAULT_UPDATE_STATS_DELAY,
+                        stat="lastOff",
+                        howChanged=how,
+                        source=source,
+                    )
             # if turned a light off manually, probably don't want AutoMoLi to immediately
             # turn it back on so start cooldown period
             if old_state == "on":
@@ -2014,7 +2017,10 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 icon=OFF_ICON,
             )
             timeSinceMotion = (
-                (natural_time(int(delay))).replace("\033[1m", "").replace("\033[0m", "")
+                (natural_time(int(delay)))
+                .replace("\033[1m", "")
+                .replace("\033[0m", "")
+                .replace("min", " min")
             )
             source = f"No motion for {timeSinceMotion}"
 
