@@ -60,6 +60,9 @@ TIME_FORMAT = "%H:%M:%S"
 
 NOT_READY_STATES = {"unavailable", "unknown", "none"}
 
+# Define a unique sentinel value for clear_handles
+MISSING = object()
+
 
 class EntityType(Enum):
     LIGHT = "light."
@@ -550,7 +553,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
         self.sensor_state: str = "off"
         self.sensor_onToday: int = 0
         self.sensor_attr: dict[str, Any] = {}
-        self.sensor_update_handle: str | None = None
+        self.sensor_update_handles: set[str] = set()
         self.sensor_lastTurningOffAt: str = "<unknown>"
         self.init_room_stats()
         self.run_daily(self.reset_room_stats, "00:00:00")
@@ -1179,6 +1182,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
             if self.cooling_down == True:
                 self.cooling_down = False
                 self.cancel_timer(self.cooling_down_handle)
+                self.cooling_down_handle = None
             # refresh timer if any lights turned on manually unless only_own_events is True
             if self.only_own_events == False:
                 self.refresh_timer(refresh_type="outside_change")
@@ -1195,13 +1199,27 @@ class AutoMoLi(hass.Hass):  # type: ignore
             self.update_room_stats, DEFAULT_UPDATE_STATS_DELAY, stat="cooldownOff"
         )
 
-    def clear_handles(self, handles: set[str] = None) -> None:
+    def clear_handles(self, handles: set[str] = MISSING) -> None:
         """clear scheduled timers/callbacks."""
 
+        which_handles = ""
         clear = False
-        if not handles:
+        if handles is MISSING:
             handles = self.room.handles_automoli
             clear = True
+            which_handles = "the room's "
+
+        if handles is None or (isinstance(handles, set) and len(handles) == 0):
+            self.lg(
+                f"{stack()[0][3]} | clear_handles called with no handles to cancel",
+                level=logging.DEBUG,
+            )
+            return
+        elif (logging.DEBUG >= self.loglevel) or self.force_logging:
+            self.lg(
+                f"{stack()[0][3]} | Cancelling {which_handles}scheduled callbacks | {handles = }",
+                level=logging.DEBUG,
+            )
 
         # getting function references for small performance gain below
         timer_running = self.timer_running
@@ -1213,14 +1231,8 @@ class AutoMoLi(hass.Hass):  # type: ignore
 
         if clear:
             self.room.handles_automoli.clear()
-
-        # reset override delay status
-        self.override_delay_active = False
-
-        if logging.DEBUG >= self.loglevel:
-            self.lg(
-                f"{stack()[0][3]} | Cancelled scheduled callbacks", level=logging.DEBUG
-            )
+            # reset override delay status
+            self.override_delay_active = False
 
     def refresh_timer(self, refresh_type: str = "normal") -> None:
         """refresh delay timer."""
@@ -1296,7 +1308,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 self.lg(
                     f"{stack()[0][3]} | Scheduled callback to switch the lights off at "
                     f"{datetime.strftime(timer_info[0], DATETIME_FORMAT)} dimming for {dim_in_sec}s | "
-                    f"handles: {self.room.handles_automoli = }",
+                    f"{self.room.handles_automoli = }",
                     level=logging.DEBUG,
                 )
                 self.run_in(
@@ -1311,6 +1323,11 @@ class AutoMoLi(hass.Hass):  # type: ignore
                     self.warning_flash_off, (int(delay) - DEFAULT_WARNING_DELAY)
                 )
                 self.room.handles_automoli.add(handle)
+                self.lg(
+                    f"{stack()[0][3]} | Scheduled callback to turn lights on after warning flash | "
+                    f"{handle = }",
+                    level=logging.DEBUG,
+                )
 
         else:
             self.run_in(
@@ -1480,7 +1497,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
         message: str = ""
 
         # check logging level here first to avoid duplicate log entries when not debug logging
-        if logging.DEBUG >= self.loglevel:
+        if (logging.DEBUG >= self.loglevel) or self.force_logging:
             self.lg(
                 f"{stack()[0][3]} | {self.is_disabled(onoff='off') = } | {self.is_blocked(onoff='off') = }",
                 level=logging.DEBUG,
@@ -1846,7 +1863,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
         """Turn off the lights."""
 
         # check logging level here first to avoid duplicate log entries when not debug logging
-        if logging.DEBUG >= self.loglevel:
+        if (logging.DEBUG >= self.loglevel) or self.force_logging:
             self.lg(
                 f"{stack()[0][3]} | {self.is_disabled(onoff='off') = } | {self.is_blocked(onoff='off') = }",
                 level=logging.DEBUG,
@@ -2531,8 +2548,8 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 self.sensor_attr.pop("times_turned_on_by_automations", 0)
         else:
             self.sensor_state = "off"
-            if self.timer_running(self.sensor_update_handle):
-                self.cancel_timer(self.sensor_update_handle)
+            self.clear_handles(self.sensor_update_handles)
+            self.sensor_update_handles.clear()
             self.sensor_attr.pop("times_turned_on_by_automoli", 0)
             self.sensor_attr.pop("times_turned_on_by_automations", 0)
             self.sensor_attr.pop("times_turned_on_manually", 0)
@@ -2631,20 +2648,21 @@ class AutoMoLi(hass.Hass):  # type: ignore
             # Update onToday again every minute until light is off
             # If there is already an update timer running, cancel it (e.g., if there are multiple lights
             # in the same room and one of them was already turned on).
-            if self.timer_running(self.sensor_update_handle):
-                self.cancel_timer(self.sensor_update_handle)
-            self.sensor_update_handle = self.run_every(
+            self.clear_handles(self.sensor_update_handles)
+            self.sensor_update_handles.clear()
+            handle = self.run_every(
                 self.update_room_stats, "now+60", 60, stat="updateEveryMin"
             )
+            self.sensor_update_handles.add(handle)
             self.lg(
-                f"{stack()[0][3]} | Scheduling update to stats every minute | {self.sensor_update_handle = }",
+                f"{stack()[0][3]} | Scheduling call to update stats every minute | {self.sensor_update_handles = }",
                 level=logging.DEBUG,
             )
 
         elif stat == "lastOff":
             self.sensor_state = "off"
-            if self.timer_running(self.sensor_update_handle):
-                self.cancel_timer(self.sensor_update_handle)
+            self.clear_handles(self.sensor_update_handles)
+            self.sensor_update_handles.clear()
 
             self.sensor_attr["last_turned_off"] = currentTimeStr
             self.sensor_onToday = int(self.sensor_onToday) + int(self.time_lights_on())
@@ -2800,8 +2818,8 @@ class AutoMoLi(hass.Hass):  # type: ignore
                         )
                         self.last_room_stats_error = "ROOM_OFF_UNEXPECTED"
 
-                    if self.timer_running(self.sensor_update_handle):
-                        self.cancel_timer(self.sensor_update_handle)
+                    self.clear_handles(self.sensor_update_handles)
+                    self.sensor_update_handles.clear()
 
                 elif self.sensor_state == "on":
                     # Check if all the lights are actually off but the state is wrong
@@ -2820,8 +2838,8 @@ class AutoMoLi(hass.Hass):  # type: ignore
                             self.last_room_stats_error = "ROOM_ON_UNEXPECTED"
 
                         self.sensor_state = "off"
-                        if self.timer_running(self.sensor_update_handle):
-                            self.cancel_timer(self.sensor_update_handle)
+                        self.clear_handles(self.sensor_update_handles)
+                        self.sensor_update_handles.clear()
                     else:
                         if self.last_room_stats_error != "TURNING_OFF_AT_NOT_SET":
                             self.lg(
