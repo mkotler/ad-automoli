@@ -1594,7 +1594,10 @@ class AutoMoLi(hass.Hass):  # type: ignore
         else:
             delay = kwargs.get("timeDelay", 0)
             timeSinceMotion = (
-                (natural_time(int(delay))).replace("\033[1m", "").replace("\033[0m", "")
+                (natural_time(int(delay)))
+                .replace("\033[1m", "")
+                .replace("\033[0m", "")
+                .replace("min", " min")
             )
             source = f"No motion for {timeSinceMotion}, dimming lights"
             self.run_in(
