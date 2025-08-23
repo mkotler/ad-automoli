@@ -25,7 +25,7 @@ from collections.abc import Iterable
 from copy import deepcopy
 from datetime import datetime, date, time, timedelta
 from dateutil import tz
-from distutils.version import StrictVersion
+from packaging.version import Version
 from enum import Enum, IntEnum
 from inspect import stack
 import logging
@@ -283,11 +283,10 @@ class AutoMoLi(hass.Hass):  # type: ignore
         """
         if name in self.args:
             return self.args.pop(name)
-        elif (
-            CONFIG_APPNAME in self.app_config
-            and name in self.app_config[CONFIG_APPNAME]
+        elif CONFIG_APPNAME in self.app_config and hasattr(
+            self.app_config[CONFIG_APPNAME], name
         ):
-            return self.app_config[CONFIG_APPNAME][name]
+            return getattr(self.app_config[CONFIG_APPNAME], name)
         else:
             return default
 
@@ -308,9 +307,14 @@ class AutoMoLi(hass.Hass):  # type: ignore
         # set up listener for state events
         listener: set[Any, Any, Any] = set()
 
-        self.loglevel = (
-            logging.DEBUG if bool(self.getarg("debug_log", False)) else logging.INFO
-        )
+        # initialize logging
+        self.loglevel = logging.INFO
+        self.colorize_logging = True
+        self.log_to_ha = False
+        self.force_logging = False
+
+        if bool(self.getarg("debug_log", False)):
+            self.loglevel = logging.DEBUG
 
         self.log_to_ha = bool(self.getarg("log_to_ha", False))
 
@@ -847,9 +851,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
 
     def has_min_ad_version(self, required_version: str) -> bool:
         required_version = required_version if required_version else "4.0.7"
-        return bool(
-            StrictVersion(self.get_ad_version()) >= StrictVersion(required_version)
-        )
+        return bool(Version(self.get_ad_version()) >= Version(required_version))
 
     def switch_daytime(self, kwargs: dict[str, Any]) -> None:
         """Set new light settings according to daytime."""
@@ -2896,7 +2898,15 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 self.sensor_attr["turning_off_at"] = turningOffAt
                 self.sensor_lastTurningOffAt = turningOffAt
             else:
-                turningOffAt = datetime.strftime(kwargs.get("time"), DATETIME_FORMAT)
+                # Ensure time is timezone-aware and in UTC before converting to local timezone
+                local_timezone = tz.tzlocal()
+                if time:
+                    if getattr(time, "tzinfo", None) is None:
+                        time = time.replace(tzinfo=tz.UTC)
+                    time_local = time.astimezone(local_timezone)
+                    turningOffAt = time_local.strftime(DATETIME_FORMAT)
+                else:
+                    turningOffAt = "<unknown>"
                 self.sensor_attr["turning_off_at"] = turningOffAt
                 self.sensor_lastTurningOffAt = turningOffAt
 

@@ -43,7 +43,7 @@ livingroom:
     - { starttime: "07:30", name: day, light: "scene.livingroom_working" }
 
       # This rule"evening" uses a percentage brightness value, and the lights specified in lights: below will be set to 90%
-    - { starttime: "sunset-01:00", name: evening, light: 90 }
+    - { starttime: "sunset - 01:00", name: evening, light: 90 }
 
     - { starttime: "22:30", name: night, light: 20 }
 
@@ -78,7 +78,7 @@ bathroom:
     - { starttime: "05:30", name: morning, light: 45 }
     - { starttime: "07:30", name: day, light: "scene.bathroom_day" }
     - { starttime: "20:30", name: evening, light: 100 }
-    - { starttime: "sunset+01:00", name: night, light: 0 }
+    - { starttime: "sunset + 01:00", name: night, light: 0 }
 
   # As this is a bathroom there could be the case that when taking a bath or shower, motion is not detected and the lights turn off, which isnt helpful, so the following settings allow you to use a humidity sensor and humidity threshold to prevent this by detecting the humidity from the shower and blocking the lights turning off.
   humidity:
@@ -126,7 +126,7 @@ key | optional | type | default | description
 
 key | optional | type | default | description
 -- | -- | -- | -- | --
-`starttime` | False | string | | Time this daytime starts or sunrise|sunset [+|- HH:MM]
+`starttime` | False | string | | Time this daytime starts or sunrise|sunset [+|- HH:MM].  Note: There needs to be a space before and after the +|-. "sunrise+01:00" will not work. Use "sunrise + 01:00" instead.
 `name` | False | string | | A name for this daytime
 `delay` | True | integer | 150 | Seconds without motion until lights will switched off. Can be disabled (lights stay always on) with `0`. Setting this will overwrite the global `delay` setting for this daytime.
 `light` | False | integer/string | | Either a percent integer value (0-100) or an entity (including a scene or script) to turn on when daytime starts
