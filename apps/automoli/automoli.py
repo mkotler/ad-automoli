@@ -924,10 +924,9 @@ class AutoMoLi(hass.Hass):  # type: ignore
         # Check if got entire state object
         if attribute == "all":
             state = dict(new).get("state")
-            if old != None:
-                old_state = dict(old).get("state", "unknown")
-            else:
-                old_state = "unknown"
+            old_state = (
+                dict(old).get("state", "unknown") if old is not None else "unknown"
+            )
         else:
             state = new
             old_state = old
@@ -940,35 +939,28 @@ class AutoMoLi(hass.Hass):  # type: ignore
         # If any other motion sensors are not ready (e.g., unavailable or unknown),
         # treat them like they are clear. Otherwise, motion may never clear causing
         # lights to be left on indefinitely.
+        sensors = self.sensors[EntityType.MOTION.idx]
+        sensor_states = {
+            sensor: self.get_state(sensor, copy=False) for sensor in sensors
+        }
         clear_states = {self.states["motion_off"]} | NOT_READY_STATES
-        all_clear = all(
-            [
-                self.get_state(sensor, copy=False) in clear_states
-                for sensor in self.sensors[EntityType.MOTION.idx]
-            ]
-        )
+        all_clear = all(state in clear_states for state in sensor_states.values())
 
-        # Capture specifics for debug logging purposes only
-        not_clear = any(
-            [
-                self.get_state(sensor, copy=False) in {self.states["motion_on"]}
-                for sensor in self.sensors[EntityType.MOTION.idx]
-            ]
-        )
-        not_ready = any(
-            [
-                self.get_state(sensor, copy=False) in NOT_READY_STATES
-                for sensor in self.sensors[EntityType.MOTION.idx]
-            ]
-        )
+        if self.log_debug:
+            not_clear = any(
+                state == self.states["motion_on"] for state in sensor_states.values()
+            )
+            not_ready = any(
+                state in NOT_READY_STATES for state in sensor_states.values()
+            )
 
-        self.lg(
-            f"{stack()[0][3]} | {entity} changed {attribute} from {old} to {new}"
-            f"{' and all sensors are clear' if all_clear else ' but waiting for all sensors to clear'}"
-            f"{(' | Not Clear: ' + ', '.join([sensor for sensor in self.sensors[EntityType.MOTION.idx] if self.get_state(sensor, copy=False) in {self.states['motion_on']} ])) if not_clear else ''}"
-            f"{(' | Not Ready: ' + ', '.join([sensor for sensor in self.sensors[EntityType.MOTION.idx] if self.get_state(sensor, copy=False) in NOT_READY_STATES])) if not_ready else ''}",
-            level=logging.DEBUG,
-        )
+            self.lg(
+                f"{stack()[0][3]} | {entity} changed {attribute} from {old} to {new}"
+                f"{' and all sensors are clear' if all_clear else ' but waiting for all sensors to clear'}"
+                f"{(' | Not Clear: ' + ', '.join([sensor for sensor, state in sensor_states.items() if state == self.states['motion_on']])) if not_clear else ''}"
+                f"{(' | Not Ready: ' + ', '.join([sensor for sensor, state in sensor_states.items() if state in NOT_READY_STATES])) if not_ready else ''}",
+                level=logging.DEBUG,
+            )
 
         if all_clear:
             self.run_in(
@@ -1580,12 +1572,15 @@ class AutoMoLi(hass.Hass):  # type: ignore
 
     @profile
     def is_blocked(self, onoff: str = None) -> bool:
+        # Use local variables for sensor_attr to avoid repeated lookups
+        sensor_attr = self.sensor_attr
+
         if onoff == "on":
             if self.block_on_entities:
                 entities = ", ".join(
                     self.get_name(entity) for entity in self.block_on_entities
                 )
-                if self.sensor_attr.get("blocked_on_by", "") == "":
+                if sensor_attr.get("blocked_on_by", "") == "":
                     self.lg(
                         f"Motion detected in {hl(self.room.name.replace('_',' ').title())} "
                         f"but blocked by {entities}"
@@ -1621,7 +1616,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
                     if current_humidity >= humidity_threshold:
                         self.refresh_timer()
                         # Only log first time blocked
-                        if self.sensor_attr.get("blocked_off_by", "") == "":
+                        if sensor_attr.get("blocked_off_by", "") == "":
                             self.lg(
                                 f"🛁 No motion in {hl(self.room.name.replace('_',' ').title())} since "
                                 f"{hl(natural_time(int(self.active['delay'])))} "
@@ -1640,7 +1635,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 entities = ", ".join(
                     self.get_name(entity) for entity in self.block_off_entities
                 )
-                if self.sensor_attr.get("blocked_off_by", "") == "":
+                if sensor_attr.get("blocked_off_by", "") == "":
                     self.lg(
                         f"No motion in {hl(self.room.name.replace('_',' ').title())} since "
                         f"{hl(natural_time(int(self.active['delay'])))} but blocked by {entities}"
@@ -2162,8 +2157,11 @@ class AutoMoLi(hass.Hass):  # type: ignore
         daytimeChange = kwargs.get("daytimeChange", False)
         source = ""
 
+        # Use local variables for sensor_attr to avoid repeated lookups
+        sensor_attr = self.sensor_attr
+
         if overrideDelay:
-            overriddenBy = self.sensor_attr.get("delay_overridden_by", "")
+            overriddenBy = sensor_attr.get("delay_overridden_by", "")
             self.lg(
                 f"No motion in {hl(self.room.name.replace('_',' ').title())} for "
                 f"{hl(natural_time(int(delay)))} overridden by {overriddenBy} → turned {hl('off')}",
@@ -2207,20 +2205,16 @@ class AutoMoLi(hass.Hass):  # type: ignore
         )
 
         # Log last motion if there actually was motion
-        lastMotionBy = self.sensor_attr.get("last_motion_by", "")
+        lastMotionBy = sensor_attr.get("last_motion_by", "")
         if lastMotionBy != "":
-            if (lastMotionWhen := self.sensor_attr.get("last_motion_cleared", "")) == 0:
-                lastMotionWhen = self.sensor_attr.get(
-                    "last_motion_detected", "<unknown>"
-                )
+            if (lastMotionWhen := sensor_attr.get("last_motion_cleared", "")) == 0:
+                lastMotionWhen = sensor_attr.get("last_motion_detected", "<unknown>")
                 self.lg(f"Last motion from {lastMotionBy} at {lastMotionWhen}.")
 
         # Log how long lights were on
         currentTime = datetime.now()
         try:
-            lastOn = datetime.strptime(
-                self.sensor_attr["last_turned_on"], DATETIME_FORMAT
-            )
+            lastOn = datetime.strptime(sensor_attr["last_turned_on"], DATETIME_FORMAT)
         except KeyError:
             lastOn = currentTime
             self.lg(
@@ -2573,13 +2567,17 @@ class AutoMoLi(hass.Hass):  # type: ignore
 
     def init_room_stats(self, _: Any | None = None) -> None:
         entity = self.get_state(self.entity_id, copy=False)
-        self.sensor_attr["friendly_name"] = (
+
+        # Use local variables for sensor_attr to avoid repeated lookups
+        sensor_attr = self.sensor_attr
+
+        sensor_attr["friendly_name"] = (
             self.room_name.replace("_", " ").title() + " Statistics"
         )
 
         # Only initialize if AutoMoli stats entity doesn't exist or if last update was before today
         if entity == None:
-            self.sensor_attr["time_lights_on_today"] = self.seconds_to_time(
+            sensor_attr["time_lights_on_today"] = self.seconds_to_time(
                 self.sensor_onToday
             )
 
@@ -2595,7 +2593,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 current_light_setting = str(light_setting)
                 if isinstance(light_setting, int):
                     current_light_setting = current_light_setting + "%"
-                self.sensor_attr["current_light_setting"] = current_light_setting
+                sensor_attr["current_light_setting"] = current_light_setting
 
         else:
             # Check if sensor was last updated before today
@@ -2613,7 +2611,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 return
             else:
                 # Read daily statistics from existing sensor
-                self.sensor_attr["time_lights_on_today"] = self.get_state(
+                sensor_attr["time_lights_on_today"] = self.get_state(
                     self.entity_id,
                     attribute="time_lights_on_today",
                     default="00:00:00",
@@ -2621,9 +2619,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 )
 
                 self.sensor_onToday = (
-                    datetime.strptime(
-                        self.sensor_attr["time_lights_on_today"], TIME_FORMAT
-                    )
+                    datetime.strptime(sensor_attr["time_lights_on_today"], TIME_FORMAT)
                     - datetime(1900, 1, 1)
                 ).total_seconds()
                 if (
@@ -2634,7 +2630,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
                         copy=False,
                     )
                 ) != 0:
-                    self.sensor_attr["times_turned_on_by_automoli"] = countAutomoliOn
+                    sensor_attr["times_turned_on_by_automoli"] = countAutomoliOn
                 if (
                     countAutomoliOff := self.get_state(
                         self.entity_id,
@@ -2643,7 +2639,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
                         copy=False,
                     )
                 ) != 0:
-                    self.sensor_attr["times_turned_off_by_automoli"] = countAutomoliOff
+                    sensor_attr["times_turned_off_by_automoli"] = countAutomoliOff
                 if (
                     countAutomationOn := self.get_state(
                         self.entity_id,
@@ -2652,9 +2648,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
                         copy=False,
                     )
                 ) != 0:
-                    self.sensor_attr["times_turned_on_by_automations"] = (
-                        countAutomationOn
-                    )
+                    sensor_attr["times_turned_on_by_automations"] = countAutomationOn
                 if (
                     countAutomationOff := self.get_state(
                         self.entity_id,
@@ -2663,9 +2657,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
                         copy=False,
                     )
                 ) != 0:
-                    self.sensor_attr["times_turned_off_by_automations"] = (
-                        countAutomationOff
-                    )
+                    sensor_attr["times_turned_off_by_automations"] = countAutomationOff
                 if (
                     countManualOn := self.get_state(
                         self.entity_id,
@@ -2674,7 +2666,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
                         copy=False,
                     )
                 ) != 0:
-                    self.sensor_attr["times_turned_on_manually"] = countManualOn
+                    sensor_attr["times_turned_on_manually"] = countManualOn
                 if (
                     countManualOff := self.get_state(
                         self.entity_id,
@@ -2683,7 +2675,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
                         copy=False,
                     )
                 ) != 0:
-                    self.sensor_attr["times_turned_off_manually"] = countManualOff
+                    sensor_attr["times_turned_off_manually"] = countManualOff
 
         self.sensor_state = (
             "on"
@@ -2697,11 +2689,11 @@ class AutoMoLi(hass.Hass):  # type: ignore
         if self.sensor_state == "on":
             currentTime = datetime.now()
             currentTimeStr = currentTime.strftime(DATETIME_FORMAT)
-            self.sensor_attr["last_turned_on"] = currentTimeStr
+            sensor_attr["last_turned_on"] = currentTimeStr
 
         # Remove debug message if debugging is off
         if (logging.DEBUG < self.loglevel) and not self.force_logging:
-            self.sensor_attr.pop("debug_message", 0)
+            sensor_attr.pop("debug_message", 0)
 
         if self.track_room_stats:
             self.set_state(
@@ -2713,39 +2705,39 @@ class AutoMoLi(hass.Hass):  # type: ignore
 
     def reset_room_stats(self, _: Any | None = None) -> None:
         self.sensor_onToday = 0
-        self.sensor_attr["time_lights_on_today"] = self.seconds_to_time(
-            self.sensor_onToday
-        )
+        # Use local variables for sensor_attr to avoid repeated lookups
+        sensor_attr = self.sensor_attr
+        sensor_attr["time_lights_on_today"] = self.seconds_to_time(self.sensor_onToday)
 
         # If lights are on, check if they were last turned on by automoli or manually
         # If a restart happened and reset is called, assume lights were turned on manually
         if any([self.get_state(entity, copy=False) == "on" for entity in self.lights]):
             self.sensor_state = "on"
             if len(self._switched_on_by_automoli) > 0:
-                self.sensor_attr["times_turned_on_by_automoli"] = 1
-                self.sensor_attr.pop("times_turned_on_manually", 0)
-                self.sensor_attr.pop("times_turned_on_by_automations", 0)
+                sensor_attr["times_turned_on_by_automoli"] = 1
+                sensor_attr.pop("times_turned_on_manually", 0)
+                sensor_attr.pop("times_turned_on_by_automations", 0)
             else:
-                self.sensor_attr.pop("times_turned_on_by_automoli", 0)
-                self.sensor_attr["times_turned_on_manually"] = 1
-                self.sensor_attr.pop("times_turned_on_by_automations", 0)
+                sensor_attr.pop("times_turned_on_by_automoli", 0)
+                sensor_attr["times_turned_on_manually"] = 1
+                sensor_attr.pop("times_turned_on_by_automations", 0)
         else:
             self.sensor_state = "off"
             self.clear_handles(self.sensor_update_handles)
             self.sensor_update_handles.clear()
-            self.sensor_attr.pop("times_turned_on_by_automoli", 0)
-            self.sensor_attr.pop("times_turned_on_by_automations", 0)
-            self.sensor_attr.pop("times_turned_on_manually", 0)
+            sensor_attr.pop("times_turned_on_by_automoli", 0)
+            sensor_attr.pop("times_turned_on_by_automations", 0)
+            sensor_attr.pop("times_turned_on_manually", 0)
 
-        self.sensor_attr.pop("times_turned_off_by_automoli", 0)
-        self.sensor_attr.pop("times_turned_off_by_automations", 0)
-        self.sensor_attr.pop("times_turned_off_manually", 0)
+        sensor_attr.pop("times_turned_off_by_automoli", 0)
+        sensor_attr.pop("times_turned_off_by_automations", 0)
+        sensor_attr.pop("times_turned_off_manually", 0)
 
         if self.track_room_stats:
             self.set_state(
                 entity_id=self.entity_id,
                 state=self.sensor_state,
-                attributes=self.sensor_attr,
+                attributes=sensor_attr,
                 replace=True,
             )
 
@@ -2767,68 +2759,65 @@ class AutoMoLi(hass.Hass):  # type: ignore
         if isinstance(stat, dict):
             stat = dict(stat).get("stat", "")
 
+        # Use local variables for sensor_attr to avoid repeated lookups
+        sensor_attr = self.sensor_attr
+
         if stat == "motion_detected":
-            self.sensor_attr["last_motion_detected"] = currentTimeStr
-            self.sensor_attr["last_motion_by"] = self.get_name(kwargs.get("entity"))
-            self.sensor_attr.pop("last_motion_cleared", "")
-            self.sensor_attr["turning_off_at"] = "Waiting for motion to clear"
+            sensor_attr["last_motion_detected"] = currentTimeStr
+            sensor_attr["last_motion_by"] = self.get_name(kwargs.get("entity"))
+            sensor_attr.pop("last_motion_cleared", "")
+            sensor_attr["turning_off_at"] = "Waiting for motion to clear"
 
         elif stat == "motion_cleared":
-            self.sensor_attr["last_motion_cleared"] = currentTimeStr
-            self.sensor_attr["last_motion_by"] = self.get_name(kwargs.get("entity"))
-            self.sensor_attr.pop("last_motion_detected", "")
+            sensor_attr["last_motion_cleared"] = currentTimeStr
+            sensor_attr["last_motion_by"] = self.get_name(kwargs.get("entity"))
+            sensor_attr.pop("last_motion_detected", "")
             # Clearing "Waiting for motion to clear" before refresh timer call
             # sets real turning_off_at time. Setting text here to handle debugging.
             # But if there is an override delay running, then clearing motion should just
             # return to the previous turning_off_at value.
             if self.override_delay_active:
-                self.sensor_attr["turning_off_at"] = self.sensor_lastTurningOffAt
+                sensor_attr["turning_off_at"] = self.sensor_lastTurningOffAt
             else:
-                self.sensor_attr["turning_off_at"] = "Motion cleared, recalculating..."
+                sensor_attr["turning_off_at"] = "Motion cleared, recalculating..."
 
         elif stat == "motion_event":
-            self.sensor_attr["last_motion_cleared"] = currentTimeStr
-            self.sensor_attr["last_motion_by"] = self.get_name(kwargs.get("entity"))
+            sensor_attr["last_motion_cleared"] = currentTimeStr
+            sensor_attr["last_motion_by"] = self.get_name(kwargs.get("entity"))
             # Setting text here to handle debugging. But if there is an override delay running,
             # then a motion event should just return to the previous turning_off_at value.
             if self.override_delay_active:
-                self.sensor_attr["turning_off_at"] = self.sensor_lastTurningOffAt
+                sensor_attr["turning_off_at"] = self.sensor_lastTurningOffAt
             else:
-                self.sensor_attr["turning_off_at"] = "Motion cleared, recalculating..."
+                sensor_attr["turning_off_at"] = "Motion cleared, recalculating..."
 
         elif stat == "lastOn":
-            self.sensor_attr["last_turned_on"] = currentTimeStr
-            countAutomoliOn = self.sensor_attr.get("times_turned_on_by_automoli", 0)
-            countAutomationOn = self.sensor_attr.get(
-                "times_turned_on_by_automations", 0
-            )
-            countManualOn = self.sensor_attr.get("times_turned_on_manually", 0)
+            sensor_attr["last_turned_on"] = currentTimeStr
+            countAutomoliOn = sensor_attr.get("times_turned_on_by_automoli", 0)
+            countAutomationOn = sensor_attr.get("times_turned_on_by_automations", 0)
+            countManualOn = sensor_attr.get("times_turned_on_manually", 0)
             if howChanged == "automoli":
                 # do not update automoli count on reboot unless nothing has been counted
                 # then assume automoli turned it on
                 if not kwargs.get("appInit", False) or (
                     countAutomoliOn + countAutomationOn + countManualOn == 0
                 ):
-                    self.sensor_attr["times_turned_on_by_automoli"] = (
-                        countAutomoliOn + 1
-                    )
+                    sensor_attr["times_turned_on_by_automoli"] = countAutomoliOn + 1
             elif howChanged == "automation":
-                self.sensor_attr["times_turned_on_by_automations"] = (
-                    countAutomationOn + 1
-                )
-                self.sensor_attr.pop("last_motion_detected", "")
-                self.sensor_attr.pop("last_motion_cleared", "")
-                self.sensor_attr.pop("last_motion_by", "")
+                sensor_attr["times_turned_on_by_automations"] = countAutomationOn + 1
+                sensor_attr.pop("last_motion_detected", "")
+                sensor_attr.pop("last_motion_cleared", "")
+                sensor_attr.pop("last_motion_by", "")
             elif howChanged == "manually":
-                self.sensor_attr["times_turned_on_manually"] = countManualOn + 1
-                self.sensor_attr.pop("last_motion_detected", "")
-                self.sensor_attr.pop("last_motion_cleared", "")
-                self.sensor_attr.pop("last_motion_by", "")
+                sensor_attr["times_turned_on_manually"] = countManualOn + 1
+                sensor_attr.pop("last_motion_detected", "")
+                sensor_attr.pop("last_motion_cleared", "")
+                sensor_attr.pop("last_motion_by", "")
             source = kwargs.get("source", "<unknown>")
-            self.sensor_attr["last_turned_on_by"] = source
-            self.sensor_attr.pop("delay_overridden_by", "")
-            self.sensor_attr.pop("blocked_on_by", "")
-            self.sensor_attr.pop("disabled_by", "")
+            sensor_attr["last_turned_on_by"] = source
+            sensor_attr.pop("delay_overridden_by", "")
+            sensor_attr.pop("blocked_on_by", "")
+            sensor_attr.pop("disabled_by", "")
 
             # Update onToday again every minute until light is off
             # If there is already an update timer running, cancel it (e.g., if there are multiple lights
@@ -2839,63 +2828,58 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 self.update_room_stats, "now+60", 60, stat="updateEveryMin"
             )
             self.sensor_update_handles.add(handle)
-            self.lg(
-                f"{stack()[0][3]} | Scheduling call to update stats every minute | {self.sensor_update_handles = }",
-                level=logging.DEBUG,
-            )
+            if self.log_debug:
+                self.lg(
+                    f"{stack()[0][3]} | Scheduling call to update stats every minute | {self.sensor_update_handles = }",
+                    level=logging.DEBUG,
+                )
 
         elif stat == "lastOff":
             self.clear_handles(self.sensor_update_handles)
             self.sensor_update_handles.clear()
 
-            self.sensor_attr["last_turned_off"] = currentTimeStr
+            sensor_attr["last_turned_off"] = currentTimeStr
             self.sensor_onToday = int(self.sensor_onToday) + int(self.time_lights_on())
-            self.sensor_attr["time_lights_on_today"] = self.seconds_to_time(
+            sensor_attr["time_lights_on_today"] = self.seconds_to_time(
                 self.sensor_onToday
             )
             if howChanged == "automoli":
                 # do not update automoli count on reboot
                 if not kwargs.get("appInit", False):
-                    countAutomoliOff = self.sensor_attr.get(
+                    countAutomoliOff = sensor_attr.get(
                         "times_turned_off_by_automoli", 0
                     )
-                    self.sensor_attr["times_turned_off_by_automoli"] = (
-                        countAutomoliOff + 1
-                    )
+                    sensor_attr["times_turned_off_by_automoli"] = countAutomoliOff + 1
             elif howChanged == "automation":
-                countAutomationOff = self.sensor_attr.get(
+                countAutomationOff = sensor_attr.get(
                     "times_turned_off_by_automations", 0
                 )
-                self.sensor_attr["times_turned_off_by_automations"] = (
-                    countAutomationOff + 1
-                )
+                sensor_attr["times_turned_off_by_automations"] = countAutomationOff + 1
             elif howChanged == "manually":
-                countManualOff = self.sensor_attr.get("times_turned_off_manually", 0)
-                self.sensor_attr["times_turned_off_manually"] = countManualOff + 1
+                countManualOff = sensor_attr.get("times_turned_off_manually", 0)
+                sensor_attr["times_turned_off_manually"] = countManualOff + 1
             source = kwargs.get("source", "<unknown>")
-            self.sensor_attr["last_turned_off_by"] = source
-            self.sensor_attr.pop("turning_off_at", "")
-            self.sensor_attr.pop("blocked_off_by", "")
-            if self.sensor_attr.get("disabled_by", "") != "Cooling down":
-                self.sensor_attr.pop("disabled_by", "")
+            sensor_attr["last_turned_off_by"] = source
+            sensor_attr.pop("turning_off_at", "")
+            sensor_attr.pop("blocked_off_by", "")
+            if sensor_attr.get("disabled_by", "") != "Cooling down":
+                sensor_attr.pop("disabled_by", "")
 
         elif stat == "overrideDelay":
             if kwargs.get("enable"):
-                self.sensor_attr["delay_overridden_by"] = self.get_name(
-                    kwargs.get("entity")
-                )
+                sensor_attr["delay_overridden_by"] = self.get_name(kwargs.get("entity"))
             else:
-                self.sensor_attr.pop("delay_overridden_by", "")
+                sensor_attr.pop("delay_overridden_by", "")
 
         elif stat == "refreshTimer":
             time = kwargs.get("time")
             # If time is -1 then lights were not actually turned on when refresh_timer
             # function was called so no need to track turning_off_at
             if time == -1:
-                self.sensor_attr.pop("turning_off_at", "")
+                sensor_attr.pop("turning_off_at", "")
             elif time == 0:
                 turningOffAt = "Lights have to be switched off manually"
-                self.sensor_attr["turning_off_at"] = turningOffAt
+                sensor_attr["turning_off_at"] = turningOffAt
                 self.sensor_lastTurningOffAt = turningOffAt
             else:
                 # Ensure time is timezone-aware and in UTC before converting to local timezone
@@ -2907,7 +2891,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
                     turningOffAt = time_local.strftime(DATETIME_FORMAT)
                 else:
                     turningOffAt = "<unknown>"
-                self.sensor_attr["turning_off_at"] = turningOffAt
+                sensor_attr["turning_off_at"] = turningOffAt
                 self.sensor_lastTurningOffAt = turningOffAt
 
         elif stat == "switchDaytime":
@@ -2922,63 +2906,62 @@ class AutoMoLi(hass.Hass):  # type: ignore
             current_light_setting = str(light_setting)
             if isinstance(light_setting, int):
                 current_light_setting = current_light_setting + "%"
-            self.sensor_attr["current_light_setting"] = current_light_setting
+            sensor_attr["current_light_setting"] = current_light_setting
 
         elif stat == "blockedOn":
             if self.entity_exists(entity := kwargs.get("entity")):
-                self.sensor_attr["blocked_on_by"] = self.get_name(entity)
+                sensor_attr["blocked_on_by"] = self.get_name(entity)
             else:
-                self.sensor_attr["blocked_on_by"] = entity
+                sensor_attr["blocked_on_by"] = entity
 
         elif stat == "blockedOff":
             if self.entity_exists(entity := kwargs.get("entity")):
-                self.sensor_attr["blocked_off_by"] = self.get_name(entity)
+                sensor_attr["blocked_off_by"] = self.get_name(entity)
             else:
-                self.sensor_attr["blocked_off_by"] = entity
+                sensor_attr["blocked_off_by"] = entity
 
         elif stat == "disabled":
             if self.entity_exists(entity := kwargs.get("entity")):
-                self.sensor_attr["disabled_by"] = self.get_name(entity)
+                sensor_attr["disabled_by"] = self.get_name(entity)
             else:
-                self.sensor_attr["disabled_by"] = entity
+                sensor_attr["disabled_by"] = entity
 
         elif stat == "onlyOwnEventsBlock":
-            self.sensor_attr["blocked_off_by"] = "Manually turned on"
+            sensor_attr["blocked_off_by"] = "Manually turned on"
 
         elif stat == "cooldownOff":
-            if self.sensor_attr.get("disabled_by", "") == "Cooling down":
-                self.sensor_attr.pop("disabled_by", "")
+            if sensor_attr.get("disabled_by", "") == "Cooling down":
+                sensor_attr.pop("disabled_by", "")
 
         elif stat == "forceLoggingOff":
-            self.sensor_attr.pop("debug_message", 0)
+            sensor_attr.pop("debug_message", 0)
 
         # If the room is still on, record all the time it was on until now
         adjustedOnToday = int(self.sensor_onToday)
         if self.sensor_state == "on":
             adjustedOnToday += int(self.time_lights_on())
-            self.sensor_attr["time_lights_on_today"] = self.seconds_to_time(
-                adjustedOnToday
-            )
+            sensor_attr["time_lights_on_today"] = self.seconds_to_time(adjustedOnToday)
 
         if self.log_debug:
             debug_message = (
                 f"{stat} | now: {datetime.now().strftime('%H:%M:%S.%f')}"
                 f" | time on today: {self.seconds_to_time(adjustedOnToday)} | { kwargs.get('message', '')}"
             )
-            self.sensor_attr["debug_message"] = debug_message
+            sensor_attr["debug_message"] = debug_message
 
         if self.track_room_stats:
             self.set_state(
                 entity_id=self.entity_id,
                 state=self.sensor_state,
-                attributes=self.sensor_attr,
+                attributes=sensor_attr,
                 replace=True,
             )
 
-        self.lg(
-            f"{stack()[0][3]} | Called by '{stat}' and updated state to {self.sensor_attr}",
-            level=logging.DEBUG,
-        )
+        if self.log_debug:
+            self.lg(
+                f"{stack()[0][3]} | Called by '{stat}' and updated state to {sensor_attr}",
+                level=logging.DEBUG,
+            )
 
         # Adding debugging to check if something unexpected happened
         if stat == "updateEveryMin":
@@ -2993,9 +2976,12 @@ class AutoMoLi(hass.Hass):  # type: ignore
         forceLightsOff = False
         error = False
 
+        # Use local variables for sensor_attr to avoid repeated lookups
+        sensor_attr = self.sensor_attr
+
         try:
             turningOffAt = datetime.strptime(
-                self.sensor_attr["turning_off_at"], DATETIME_FORMAT
+                sensor_attr["turning_off_at"], DATETIME_FORMAT
             )
             # Adding 60 seconds below because updateEveryMin can trigger before the light actually has time to turn off
             if datetime.timestamp(currentTime) > (
@@ -3019,23 +3005,23 @@ class AutoMoLi(hass.Hass):  # type: ignore
                     self.sensor_state = "off"
                     self.clear_handles(self.sensor_update_handles)
                     self.sensor_update_handles.clear()
-                    self.sensor_attr["last_turned_off_by"] = (
+                    sensor_attr["last_turned_off_by"] = (
                         "Error: Room was not actually on"
                     )
-                    self.sensor_attr.pop("turning_off_at", "")
-                    self.sensor_attr.pop("blocked_off_by", "")
-                    if self.sensor_attr.get("disabled_by", "") != "Cooling down":
-                        self.sensor_attr.pop("disabled_by", "")
+                    sensor_attr.pop("turning_off_at", "")
+                    sensor_attr.pop("blocked_off_by", "")
+                    if sensor_attr.get("disabled_by", "") != "Cooling down":
+                        sensor_attr.pop("disabled_by", "")
                     if self.track_room_stats:
                         self.set_state(
                             entity_id=self.entity_id,
                             state=self.sensor_state,
-                            attributes=self.sensor_attr,
+                            attributes=sensor_attr,
                             replace=True,
                         )
                 else:
                     self.lg(
-                        f"Lights should have been turned off at {self.sensor_attr['turning_off_at']} but they are still on. Trying to force them off now.",
+                        f"Lights should have been turned off at {sensor_attr['turning_off_at']} but they are still on. Trying to force them off now.",
                         icon=ALERT_ICON,
                     )
                     forceLightsOff = True
@@ -3073,18 +3059,18 @@ class AutoMoLi(hass.Hass):  # type: ignore
                     self.sensor_state = "off"
                     self.clear_handles(self.sensor_update_handles)
                     self.sensor_update_handles.clear()
-                    self.sensor_attr["last_turned_off_by"] = (
+                    sensor_attr["last_turned_off_by"] = (
                         "Error: Room was not actually on"
                     )
-                    self.sensor_attr.pop("turning_off_at", "")
-                    self.sensor_attr.pop("blocked_off_by", "")
-                    if self.sensor_attr.get("disabled_by", "") != "Cooling down":
-                        self.sensor_attr.pop("disabled_by", "")
+                    sensor_attr.pop("turning_off_at", "")
+                    sensor_attr.pop("blocked_off_by", "")
+                    if sensor_attr.get("disabled_by", "") != "Cooling down":
+                        sensor_attr.pop("disabled_by", "")
                     if self.track_room_stats:
                         self.set_state(
                             entity_id=self.entity_id,
                             state=self.sensor_state,
-                            attributes=self.sensor_attr,
+                            attributes=sensor_attr,
                             replace=True,
                         )
                 else:
@@ -3102,11 +3088,11 @@ class AutoMoLi(hass.Hass):  # type: ignore
                     )
                     self.last_room_stats_error = "UNEXPECTED_STATE"
         except ValueError:
-            turningOffText = self.sensor_attr["turning_off_at"]
+            turningOffText = sensor_attr["turning_off_at"]
             if turningOffText == "Waiting for motion to clear":
                 try:
                     lastMotionDetected = datetime.strptime(
-                        self.sensor_attr["last_motion_detected"], DATETIME_FORMAT
+                        sensor_attr["last_motion_detected"], DATETIME_FORMAT
                     )
                     if datetime.timestamp(currentTime) > (
                         datetime.timestamp(lastMotionDetected) + 3600
@@ -3125,7 +3111,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
             elif turningOffText == "Motion cleared, recalculating...":
                 try:
                     lastMotionCleared = datetime.strptime(
-                        self.sensor_attr["last_motion_cleared"], DATETIME_FORMAT
+                        sensor_attr["last_motion_cleared"], DATETIME_FORMAT
                     )
                     if datetime.timestamp(currentTime) > (
                         datetime.timestamp(lastMotionCleared) + 300
@@ -3165,13 +3151,16 @@ class AutoMoLi(hass.Hass):  # type: ignore
         currentTime = datetime.now()
         adjustedOnToday = int(self.sensor_onToday)
 
+        # Use local variables for sensor_attr to avoid repeated lookups
+        sensor_attr = self.sensor_attr
+
         if self.sensor_state == "on":
             # The room is still on, record all the time it was on until now
             lastOn = currentTime
-            lastTurnedOn = self.sensor_attr.get("last_turned_on", "")
+            lastTurnedOn = sensor_attr.get("last_turned_on", "")
             if lastTurnedOn != "":
                 lastOn = datetime.strptime(
-                    self.sensor_attr["last_turned_on"], DATETIME_FORMAT
+                    sensor_attr["last_turned_on"], DATETIME_FORMAT
                 )
             adjustedOnToday = adjustedOnToday + (
                 int(datetime.timestamp(currentTime)) - int(datetime.timestamp(lastOn))
@@ -3179,11 +3168,11 @@ class AutoMoLi(hass.Hass):  # type: ignore
 
         if int(adjustedOnToday) != 0:
             # Print out the current stats
-            automoliOn = self.sensor_attr.get("times_turned_on_by_automoli", 0)
-            automationOn = self.sensor_attr.get("times_turned_on_by_automations", 0)
-            automationOff = self.sensor_attr.get("times_turned_off_by_automations", 0)
-            manualOn = self.sensor_attr.get("times_turned_on_manually", 0)
-            manualOff = self.sensor_attr.get("times_turned_off_manually", 0)
+            automoliOn = sensor_attr.get("times_turned_on_by_automoli", 0)
+            automationOn = sensor_attr.get("times_turned_on_by_automations", 0)
+            automationOff = sensor_attr.get("times_turned_off_by_automations", 0)
+            manualOn = sensor_attr.get("times_turned_on_manually", 0)
+            manualOff = sensor_attr.get("times_turned_off_manually", 0)
             totalOn = automoliOn + automationOn + manualOn
             self.lg(
                 f"{hl(self.room_name.replace('_',' ').title())} turned on "
