@@ -627,12 +627,22 @@ class AutoMoLi(hass.Hass):  # type: ignore
         self.sensor_update_handles: set[str] = set()
         self.sensor_lastTurningOffAt: str = "<unknown>"
         self.init_room_stats()
-        self.run_daily(self.reset_room_stats, "00:00:00")
+        self.run_daily(
+            self.reset_room_stats,
+            self.AD.tz.localize(
+                datetime.combine(datetime.now(self.AD.tz).date(), time(0, 0, 0))
+            ),
+        )
         self.listen_event(self.room_event, event=EVENT_AUTOMOLI_STATS)
         self.last_room_stats_error: str = "NO_ERROR"
 
         if self.track_room_stats:
-            self.run_daily(self.print_room_stats, "23:59:59")
+            self.run_daily(
+                self.print_room_stats,
+                self.AD.tz.localize(
+                    datetime.combine(datetime.now(self.AD.tz).date(), time(23, 59, 59))
+                ),
+            )
 
         # enumerate optional sensors & disable optional features if sensors are not available
         for sensor_type in SENSORS_OPTIONAL:
@@ -882,11 +892,18 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 # If transition_on_daytime_switch then execute the daytime changes if:
                 # - any lights are on since brightness may have changed
                 # - the light_setting is a scene or script then want to execute it
-                # But if the lights are all off and brightness changed, that's the one case
-                # when do not want to update (or else could turn on the lights even when
-                # no motion is detected)
-                if self.transition_on_daytime_switch and any(
-                    [self.get_state(light, copy=False) == "on" for light in self.lights]
+                # - there is no motion sensor (so daytime is just being used as a timer)
+                # But if there is a motion sensor and the lights are all off
+                # and brightness changed, that's the one case when do not want to update
+                # (or else could turn on the lights even when no motion is detected)
+                if self.transition_on_daytime_switch and (
+                    any(
+                        [
+                            self.get_state(light, copy=False) == "on"
+                            for light in self.lights
+                        ]
+                    )
+                    or not self.sensors[EntityType.MOTION.idx]
                 ):
                     self.lights_on(source="daytime change", force=True)
                     action_done = "Activated"
@@ -1778,7 +1795,8 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 if light in self._switched_on_by_automoli:
                     self._switched_on_by_automoli.remove(light)
                 self._switched_off_by_automoli.add(light)
-            self.run_in(self.turned_off, 0)
+            # using 0.1 instead of 0 to workaround appdaemon issue #2405
+            self.run_in(self.turned_off, 0.1)
 
     @profile
     def lights_on(self, source: str = "<unknown>", force: bool = False) -> None:
@@ -1860,8 +1878,9 @@ class AutoMoLi(hass.Hass):  # type: ignore
                         level=logging.DEBUG,
                     )
                 # if lights are on only turn them off if force is true (there is a daytime change)
+                # using 0.1 instead of 0 to workaround appdaemon issue #2405
                 elif force:
-                    self.run_in(self.lights_off, 0, daytimeChange=True)
+                    self.run_in(self.lights_off, 0.1, daytimeChange=True)
 
             else:
                 for entity in lights:
@@ -2100,8 +2119,9 @@ class AutoMoLi(hass.Hass):  # type: ignore
         if at_least_one_turned_off and not at_least_one_error:
             delay = kwargs.get("timeDelay", 0)
             daytimeChange = kwargs.get("daytimeChange", False)
+            # using 0.1 instead of 0 to workaround appdaemon issue #2405
             self.run_in(
-                self.turned_off, 0, timeDelay=delay, daytimeChange=daytimeChange
+                self.turned_off, 0.1, timeDelay=delay, daytimeChange=daytimeChange
             )
 
             # If there are any actions to take after the lights are off then run them now
@@ -2408,10 +2428,13 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 self.switch_daytime(dict(daytime=daytime, initial=True))
                 self.active_daytime = daytime.get("daytime")
 
+            local_dt = self.AD.tz.localize(
+                datetime.combine(datetime.now(self.AD.tz).date(), dt_start)
+            )
             # schedule callbacks for daytime switching
             self.run_daily(
                 self.switch_daytime,
-                dt_start,
+                local_dt,
                 random_start=-RANDOMIZE_SEC,
                 random_end=RANDOMIZE_SEC,
                 **dict(daytime=daytime),
@@ -2532,7 +2555,8 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 or (room.capitalize() == (self.room_name).capitalize())
             ):
                 # Since print_room_stats has kwargs and not **kwargs calling run_in with delay = 0
-                self.run_in(self.print_room_stats, 0)
+                # using 0.1 instead of 0 to workaround appdaemon issue #2405
+                self.run_in(self.print_room_stats, 0.1)
 
     #########################  Room Statistics ########################
     # "friendly_name":  Friendly name of the sensor, e.g., "Kitchen Statistics"
@@ -3143,7 +3167,8 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 )
                 self.last_room_stats_error = "UNEXPECTED_ERROR"
         if forceLightsOff:
-            self.run_in(self.lights_off, 0)
+            # using 0.1 instead of 0 to workaround appdaemon issue #2405
+            self.run_in(self.lights_off, 0.1)
 
     # Global lock ensures that multiple log writes occur together when printing room stats
     @ad.global_lock

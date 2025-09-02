@@ -138,7 +138,7 @@ Note: If there is only one daytime, the light and delay settings will be applied
 key | optional | type | default | description
 -- | -- | -- | -- | --
 `dependencies` | True | string | None | If you set configuration options under an app named "default" then those will become the defaults across all rooms (but can still be overridden within a specific room). Specify `dependencies: default` so that any changes to the "default" app will be automatically picked up.
-`transition_on_daytime_switch` | True | bool | False | directly activate a daytime on its start time (instead to just set it as active daytime used if lights are switched from off to on)
+`transition_on_daytime_switch` | True | bool | False | Adjust lights at a daytime's start time (instead to just setting it as active). However, will only turn a light on (if it was off) if no motion sensor has been defined and daytimes are just being used as a timer.
 `after_on` | True | list/string | None | After lights are turned on, this list of entities will also be turned on.  Unlike `lights` this can include scenes and scripts.
 `after_off` | True | list/string | None | After lights are turned off, this list of entities will also be turned on.  Like `after_on` this can also include scenes and scripts.
 `only_own_events` | True | bool | None | Track if automoli switched this light on. If not, automoli will not switch the light off. (see below)
