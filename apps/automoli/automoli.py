@@ -955,8 +955,13 @@ class AutoMoLi(hass.Hass):  # type: ignore
         # Check that all motion sensors have cleared before starting timer.
         # If any other motion sensors are not ready (e.g., unavailable or unknown),
         # treat them like they are clear. Otherwise, motion may never clear causing
-        # lights to be left on indefinitely.
-        sensors = self.sensors[EntityType.MOTION.idx]
+        # lights to be left on indefinitely. Exclude the triggering sensor (entity)
+        # since we already know it is cleared and in certain cases this method can
+        # be called before get_state returns the new state.
+
+        sensors = [
+            sensor for sensor in self.sensors[EntityType.MOTION.idx] if sensor != entity
+        ]
         sensor_states = {
             sensor: self.get_state(sensor, copy=False) for sensor in sensors
         }
