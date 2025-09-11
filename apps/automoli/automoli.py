@@ -896,6 +896,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 # But if there is a motion sensor and the lights are all off
                 # and brightness changed, that's the one case when do not want to update
                 # (or else could turn on the lights even when no motion is detected)
+                no_motion_sensor = not self.sensors[EntityType.MOTION.idx]
                 if self.transition_on_daytime_switch and (
                     any(
                         [
@@ -903,9 +904,13 @@ class AutoMoLi(hass.Hass):  # type: ignore
                             for light in self.lights
                         ]
                     )
-                    or not self.sensors[EntityType.MOTION.idx]
+                    or no_motion_sensor
                 ):
                     self.lights_on(source="daytime change", force=True)
+                    # If lights were turned but there was no motion then make sure
+                    # to start the timer to turn off lights with the default delay
+                    if no_motion_sensor:
+                        self.refresh_timer()
                     action_done = "Activated"
 
                 if settings_changed:
