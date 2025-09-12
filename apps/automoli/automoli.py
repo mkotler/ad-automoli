@@ -1106,6 +1106,26 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 self.block_on_entities.add(entity)
             elif entity in self.block_on_entities:
                 self.block_on_entities.remove(entity)
+                # If this entity was just removed (unblocked) and there are no motion sensors,
+                # check if lights should be turned on based on current daytime settings
+                no_motion_sensor = not self.sensors[EntityType.MOTION.idx]
+                if no_motion_sensor and not self.block_on_entities:
+                    # Get current light setting to determine if lights should be on
+                    current_light_setting = self.active.get("light_setting", 0)
+                    should_turn_on_lights = (
+                        isinstance(current_light_setting, int)
+                        and current_light_setting > 0
+                    ) or not isinstance(
+                        current_light_setting, int
+                    )  # scenes/scripts
+
+                    if should_turn_on_lights:
+                        self.lg(
+                            f"Block cleared on {entity}, no motion sensor configured, "
+                            f"and current daytime setting ({current_light_setting}) indicates lights should be on",
+                            level=logging.DEBUG,
+                        )
+                        self.lights_on(source="block_on entity cleared")
 
     def block_off_change(
         self,
