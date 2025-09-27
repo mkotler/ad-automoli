@@ -277,173 +277,138 @@ class AutoMoLi(hass.Hass):  # type: ignore
         self,
         config_value: Any,
         config_name: str,
-    ) -> list[dict[str, Any]]:
+    ) -> dict[str, Any]:
         """Parse block_on_switch_states or block_off_switch_states configuration.
         
-        Accepts four canonical input shapes:
+        Accepts three canonical input shapes:
         a) Scalar string: "on"
         b) List of strings: ["on", "sleep"]
-        c) Single mapping (states as string): { states: "on", start: "22:30", end: "06:30" }
-        d) Single mapping (states as list): { states: ["on","sleep"], start: "22:30", end: "06:30" }
+        c) Single mapping: { states: "on", start: "22:30", end: "06:30" }
         
-        Returns normalized list of rules, each as dict:
+        Returns normalized rule as dict:
         { "states": ["state1", "state2"], "start": "22:30", "end": "06:30" }
         """
         if not config_value:
-            return []
+            return {"states": []}
         
         # Handle scalar string - convert to simple rule
         if isinstance(config_value, str):
-            return [{"states": [config_value]}]
+            return {"states": [config_value]}
         
         # Handle list - need to check for invalid time keys first
         if isinstance(config_value, list):
             # Check for time keys that shouldn't be in a list
             has_time_keys = any(isinstance(item, str) and item in ["start", "end"] for item in config_value)
             if has_time_keys:
-                return self._handle_list_config(config_value, config_name)
+                self.lg(
+                    f"Invalid mixed configuration in {config_name}: cannot mix strings with time keys. "
+                    f"Ignoring entire configuration: {config_value}",
+                    level=logging.WARNING
+                )
+                return {"states": []}
             # Handle pure list of strings
             elif all(isinstance(item, str) for item in config_value):
-                return [{"states": config_value}]
-            # Handle other list configurations (mixed, etc.)
+                return {"states": config_value}
+            # Any other list configuration is invalid
             else:
-                return self._handle_list_config(config_value, config_name)
+                self.lg(
+                    f"Invalid list configuration in {config_name}: {config_value}. Using empty states.",
+                    level=logging.WARNING
+                )
+                return {"states": []}
         
         # Handle single mapping with time window
         if isinstance(config_value, dict):
-            return self._normalize_single_mapping(config_value, config_name)
+            if "states" not in config_value:
+                self.lg(
+                    f"Invalid mapping in {config_name}: missing 'states' key. Ignoring: {config_value}",
+                    level=logging.WARNING
+                )
+                return {"states": []}
+            
+            states = config_value["states"]
+            if isinstance(states, str):
+                states = [states]
+            elif isinstance(states, list) and all(isinstance(s, str) for s in states):
+                states = states
+            else:
+                self.lg(
+                    f"Invalid states in {config_name}: {states} must be string or list of strings. Ignoring mapping.",
+                    level=logging.WARNING
+                )
+                return {"states": []}
+            
+            result = {"states": states}
+            
+            # Add time window if provided
+            if "start" in config_value and "end" in config_value:
+                start_time = str(config_value["start"])
+                end_time = str(config_value["end"])
+                
+                # Validate time format (basic validation)
+                try:
+                    # Test parsing with hass built-in parser
+                    self.parse_time(start_time if start_time.count(":") == 2 else start_time + ":00")
+                    self.parse_time(end_time if end_time.count(":") == 2 else end_time + ":00")
+                    result["start"] = start_time
+                    result["end"] = end_time
+                except Exception as e:
+                    self.lg(
+                        f"Invalid time format in {config_name}: start='{start_time}', end='{end_time}'. Error: {e}. Ignoring time window.",
+                        level=logging.WARNING
+                    )
+            elif "start" in config_value or "end" in config_value:
+                self.lg(
+                    f"Incomplete time window in {config_name}: both 'start' and 'end' must be provided. Ignoring time window.",
+                    level=logging.WARNING
+                )
+            
+            return result
         
         # Invalid configuration type
         self.lg(
             f"Invalid configuration for {config_name}: {config_value} "
-            f"(type: {type(config_value)}). Using empty rules.",
+            f"(type: {type(config_value)}). Using empty states.",
             level=logging.WARNING
         )
-        return []
-    
-    def _normalize_single_mapping(self, mapping: dict[str, Any], config_name: str) -> list[dict[str, Any]]:
-        """Normalize a single mapping configuration."""
-        if "states" not in mapping:
-            self.lg(
-                f"Invalid mapping in {config_name}: missing 'states' key. Ignoring: {mapping}",
-                level=logging.WARNING
-            )
-            return []
-        
-        states = mapping["states"]
-        if isinstance(states, str):
-            states = [states]
-        elif isinstance(states, list) and all(isinstance(s, str) for s in states):
-            states = states
-        else:
-            self.lg(
-                f"Invalid states in {config_name}: {states} must be string or list of strings. Ignoring mapping.",
-                level=logging.WARNING
-            )
-            return []
-        
-        result = {"states": states}
-        
-        # Add time window if provided
-        if "start" in mapping and "end" in mapping:
-            start_time = str(mapping["start"])
-            end_time = str(mapping["end"])
-            
-            # Validate time format (basic validation)
-            try:
-                # Test parsing with hass built-in parser
-                self.parse_time(start_time if start_time.count(":") == 2 else start_time + ":00")
-                self.parse_time(end_time if end_time.count(":") == 2 else end_time + ":00")
-                result["start"] = start_time
-                result["end"] = end_time
-            except Exception as e:
-                self.lg(
-                    f"Invalid time format in {config_name}: start='{start_time}', end='{end_time}'. Error: {e}. Ignoring time window.",
-                    level=logging.WARNING
-                )
-        elif "start" in mapping or "end" in mapping:
-            self.lg(
-                f"Incomplete time window in {config_name}: both 'start' and 'end' must be provided. Ignoring time window.",
-                level=logging.WARNING
-            )
-        
-        return [result]
-    
-    def _handle_list_config(self, config_list: list[Any], config_name: str) -> list[dict[str, Any]]:
-        """Handle list configuration, rejecting invalid mixed content."""
-        if not config_list:
-            return []
-        
-        # Check for invalid mixed content first
-        has_strings = any(isinstance(item, str) for item in config_list)
-        has_dicts = any(isinstance(item, dict) for item in config_list)
-        has_time_keys = any(isinstance(item, str) and item in ["start", "end"] for item in config_list)
-        
-        if has_strings and (has_dicts or has_time_keys):
-            self.lg(
-                f"Invalid mixed configuration in {config_name}: cannot mix strings with mappings or time keys. "
-                f"Ignoring entire configuration: {config_list}",
-                level=logging.WARNING
-            )
-            return []
-        
-        # Check if it's a pure string list (should not have been mixed as checked above)
-        if all(isinstance(item, str) for item in config_list) and not has_time_keys:
-            return [{"states": config_list}]
-        
-        # If all are dictionaries, reject for now (multiple time windows not supported in this implementation)
-        if all(isinstance(item, dict) for item in config_list):
-            self.lg(
-                f"Multiple time window mappings not supported in {config_name}. Use single mapping only. "
-                f"Ignoring configuration: {config_list}",
-                level=logging.WARNING
-            )
-            return []
-        
-        # Invalid configuration
-        self.lg(
-            f"Invalid list configuration in {config_name}: {config_list}. Using empty rules.",
-            level=logging.WARNING
-        )
-        return []
+        return {"states": []}
 
-    def is_state_blocked(self, state: str, block_rules: list[dict[str, Any]]) -> bool:
-        """Check if a state is blocked by any of the block rules.
+    def is_state_blocked(self, state: str, block_states: dict[str, Any]) -> bool:
+        """Check if a state is blocked by the block rule.
         
         Args:
             state: The current state to check
-            block_rules: List of normalized block rules from parse_block_states
+            block_states: Normalized block states from parse_block_states
             
         Returns:
             True if the state should be blocked, False otherwise
         """
-        for rule in block_rules:
-            # Check if state matches
-            if state in rule["states"]:
-                # If no time window, always match
-                if "start" not in rule or "end" not in rule:
+        # Check if state matches
+        if state in block_states["states"]:
+            # If no time window, always match
+            if "start" not in block_states or "end" not in block_states:
+                return True
+            
+            # Check if current time is within the window
+            start_time = block_states["start"]
+            end_time = block_states["end"]
+            
+            # Add seconds if not provided
+            if start_time.count(":") == 1:
+                start_time += ":00"
+            if end_time.count(":") == 1:
+                end_time += ":00"
+            
+            try:
+                if self.now_is_between(start_time, end_time):
                     return True
-                
-                # Check if current time is within the window
-                start_time = rule["start"]
-                end_time = rule["end"]
-                
-                # Add seconds if not provided
-                if start_time.count(":") == 1:
-                    start_time += ":00"
-                if end_time.count(":") == 1:
-                    end_time += ":00"
-                
-                try:
-                    if self.now_is_between(start_time, end_time):
-                        return True
-                except Exception as e:
-                    self.lg(
-                        f"Error checking time window {start_time} to {end_time}: {e}. Treating as no time restriction.",
-                        level=logging.WARNING
-                    )
-                    # If time check fails, apply the rule without time restriction
-                    return True
+            except Exception as e:
+                self.lg(
+                    f"Error checking time window {start_time} to {end_time}: {e}. Treating as no time restriction.",
+                    level=logging.WARNING
+                )
+                # If time check fails, apply the rule without time restriction
+                return True
         
         return False
 
@@ -630,13 +595,9 @@ class AutoMoLi(hass.Hass):  # type: ignore
         self.block_on_switch_entities: list[str] = list(
             self.listr(self.getarg("block_on_switch_entities", set()))
         )
-        self.block_on_switch_rules: list[dict[str, Any]] = self.parse_block_states(
+        self.block_on_switch_states: dict[str, Any] = self.parse_block_states(
             self.getarg("block_on_switch_states", ["off"]), "block_on_switch_states"
         )
-        # Keep backward compatible set for logging/serialization
-        self.block_on_switch_states: set[str] = set()
-        for rule in self.block_on_switch_rules:
-            self.block_on_switch_states.update(rule["states"])
         # set up event listener for each block_on entity
         for block_on_entity in self.block_on_switch_entities:
             listener.add(
@@ -647,7 +608,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
             )
             # Check if block_on_entity it is currently on
             if self.is_state_blocked(
-                self.get_state(block_on_entity, copy=False), self.block_on_switch_rules
+                self.get_state(block_on_entity, copy=False), self.block_on_switch_states
             ):
                 self.block_on_entities.add(block_on_entity)
 
@@ -656,13 +617,9 @@ class AutoMoLi(hass.Hass):  # type: ignore
         self.block_off_switch_entities: list[str] = list(
             self.listr(self.getarg("block_off_switch_entities", set()))
         )
-        self.block_off_switch_rules: list[dict[str, Any]] = self.parse_block_states(
+        self.block_off_switch_states: dict[str, Any] = self.parse_block_states(
             self.getarg("block_off_switch_states", ["off"]), "block_off_switch_states"
         )
-        # Keep backward compatible set for logging/serialization
-        self.block_off_switch_states: set[str] = set()
-        for rule in self.block_off_switch_rules:
-            self.block_off_switch_states.update(rule["states"])
         # set up event listener for each block_off entity
         for block_off_entity in self.block_off_switch_entities:
             listener.add(
@@ -673,7 +630,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
             )
             # Check if block_off_entity it is currently on
             if self.is_state_blocked(
-                self.get_state(block_off_entity, copy=False), self.block_off_switch_rules
+                self.get_state(block_off_entity, copy=False), self.block_off_switch_states
             ):
                 self.block_off_entities.add(block_off_entity)
 
@@ -953,12 +910,12 @@ class AutoMoLi(hass.Hass):  # type: ignore
             self.args.update(
                 {"block_on_switch_entities": self.block_on_switch_entities}
             )
-            self.args.update({"block_on_switch_states": self.block_on_switch_states})
+            self.args.update({"block_on_switch_states": self.block_on_switch_states["states"]})
         if self.block_off_switch_entities:
             self.args.update(
                 {"block_off_switch_entities": self.block_off_switch_entities}
             )
-            self.args.update({"block_off_switch_states": self.block_off_switch_states})
+            self.args.update({"block_off_switch_states": self.block_off_switch_states["states"]})
 
         # add override delay entities to config if given
         if self.override_delay_entities:
@@ -1282,7 +1239,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
             level=logging.DEBUG,
         )
         if old != new:
-            if self.is_state_blocked(str(new), self.block_on_switch_rules):
+            if self.is_state_blocked(str(new), self.block_on_switch_states):
                 self.block_on_entities.add(entity)
             elif entity in self.block_on_entities:
                 self.block_on_entities.remove(entity)
@@ -1302,7 +1259,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
             level=logging.DEBUG,
         )
         if old != new:
-            if self.is_state_blocked(str(new), self.block_off_switch_rules):
+            if self.is_state_blocked(str(new), self.block_off_switch_states):
                 self.block_off_entities.add(entity)
             elif entity in self.block_off_entities:
                 self.block_off_entities.remove(entity)

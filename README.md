@@ -147,9 +147,9 @@ key | optional | type | default | description
 `disable_switch_entities` | True | list/string | | One or more Home Assistant Entities as switch for AutoMoLi. If the state of **any** entity is *off*, AutoMoLi is *deactivated*. (Use an *input_boolean* for example)
 `disable_switch_states` | True | list/string | ["off"] | Custom states for `disable_switch_entities`. If the state of **any** entity is *in this list*, AutoMoLi is *deactivated*. Can be used to disable with `media_players` in `playing` state for example.
 `block_on_switch_entities` | True | list/string | | If the state of **any** entity is *off*, AutoMoLi will not turn *on* lights until the entity is no longer *off*. (Use an *input_boolean* for example)
-`block_on_switch_states` | True | list/string/mapping | ["off"] | Custom states for `block_on_switch_entities`. If the state of **any** entity is *in this list*, AutoMoLi will not turn *on* lights until the entity is no longer in this list. Supports time windows: `{ states: ["on","sleep"], start: "22:30", end: "06:30" }`. Can be used to block turning on bedroom lights if someone is in bed during night hours, for example.
+`block_on_switch_states` | True | list/string | ["off"] | Custom states for `block_on_switch_entities`. If the state of **any** entity is *in this list*, AutoMoLi will not turn *on* lights until the entity is no longer in this list. Supports time windows: `{ states: ["on","sleep"], start: "22:30", end: "06:30" }`. Can be used to block turning on bedroom lights if someone is in bed during night hours, for example.
 `block_off_switch_entities` | True | list/string | | If the state of **any** entity is *off*, AutoMoLi will not turn *off* lights until the entity is no longer *off*. (Use an *input_boolean* for example)
-`block_off_switch_states` | True | list/string/mapping | ["off"] | Custom states for `block_off_switch_entities`. If the state of **any** entity is *in this list*, AutoMoLi will not turn *off* lights until the entity is no longer in this list. Supports time windows: `{ states: "on", start: "22:30", end: "06:30" }`. Can be used to block turning off lights if the bathroom door is closed during night hours for example.
+`block_off_switch_states` | True | list/string | ["off"] | Custom states for `block_off_switch_entities`. If the state of **any** entity is *in this list*, AutoMoLi will not turn *off* lights until the entity is no longer in this list. Supports time windows: `{ states: "on", start: "22:30", end: "06:30" }`. Can be used to block turning off lights if the bathroom door is closed during night hours for example.
 `disable_hue_groups` | False | boolean | | Disable the use of Hue Groups/Scenes
 `override_delay_entities` | True | list/string |  | One ore more Home Assistant Entities that when a state change to "on" happens will override the delay (e.g., opening a door would reduce the timer to default 60 seconds for turning off the room's  lights )
 `override_delay` | True | integer | 60 | Seconds to update delay to when one of the entities in `override_delay_entities` changes its state to "on"
@@ -166,7 +166,7 @@ None | Lights will be turned off after motion is detected, regardless of whether
 None | Lights will be turned off after motion is detected, regardless of whether AutoMoLi turned the lights on AND after the delay if they were turned on outside AutoMoLi (e.g., manually or via an automation). 
 True | Lights will only be turned off after motion is detected, if AutoMoLi turned the lights on.
 
-## Time-Windowed Block States
+## Block States
 
 The `block_on_switch_states` and `block_off_switch_states` configurations now support time-windowed rules in addition to the existing simple state lists. This allows you to create blocking rules that only apply during specific time periods.
 
@@ -181,7 +181,7 @@ block_on_switch_states:
   - "sleep"
 ```
 
-#### Time-windowed mapping
+#### Examples
 ```yaml
 # Block only during nighttime hours (22:30 to 06:30)
 block_on_switch_states:
@@ -196,33 +196,9 @@ block_off_switch_states:
   end: "07:00"
 ```
 
-### Examples
-
-**Block bedroom lights from turning on if person is sleeping, but only during night hours:**
-```yaml
-bedroom:
-  room: bedroom
-  block_on_switch_entities: input_boolean.person_sleeping
-  block_on_switch_states:
-    states: "on"
-    start: "22:00"
-    end: "08:00"
-```
-
-**Block bathroom lights from turning off if door is closed, but only during night hours:**
-```yaml
-bathroom:
-  room: bathroom 
-  block_off_switch_entities: binary_sensor.bathroom_door
-  block_off_switch_states:
-    states: "on"
-    start: "22:30"
-    end: "06:30"
-```
-
 ### Notes
 - Time windows support overnight spans (e.g., 22:30 to 06:30)
-- Both `start` and `end` times must be provided for time-windowed rules
+- Both `start` and `end` times must be provided
 - Times use 24-hour format (HH:MM or HH:MM:SS)
 - Invalid configurations will be logged as warnings and ignored
 - Mixed configurations (combining simple strings with time mappings) are not supported
