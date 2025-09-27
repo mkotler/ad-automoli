@@ -1129,6 +1129,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
                             level=logging.DEBUG,
                         )
                         self.lights_on(source="block on entities cleared")
+                        self.refresh_timer()
 
     def block_off_change(
         self,
