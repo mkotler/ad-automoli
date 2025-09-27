@@ -593,6 +593,10 @@ class AutoMoLi(hass.Hass):  # type: ignore
             )
         )
 
+        # Set activate_on_daytime_switch to True if no motion sensors and not explicitly configured
+        if not self.sensors[EntityType.MOTION.idx] and "activate_on_daytime_switch" not in self.args:
+            self.activate_on_daytime_switch = True
+
         self.room = Room(
             name=self.room_name,
             room_lights=self.lights,
@@ -895,15 +899,21 @@ class AutoMoLi(hass.Hass):  # type: ignore
 
                 action_done = "Set"
 
-                # Execute daytime changes when activated based on configuration
+                # Execute the daytime changes if either activation_on_daytime_switch == True
+                # (without any conditions) or transition_on_daytime_switch == True and
+                # - any lights are on since brightness may have changed
+                # - the light_setting is a scene or script then want to execute it
+                # But if transition_on_daytime_switch is True, the lights are all off,
+                # and brightness changed, don't update or else could turn on the 
+                # lights even when no motion is detected
                 any_lights_on = any(
                     [self.get_state(light, copy=False) == "on" for light in self.lights]
                 )
 
                 if self.activate_on_daytime_switch or (self.transition_on_daytime_switch and any_lights_on):
                     self.lights_on(source="daytime change", force=True)
-                    # If there are no motion sensors, make sure to start the timer to turn off lights
-                    if not self.sensors[EntityType.MOTION.idx]:
+                    # If activate_on_daytime_switch is True, make sure to start the timer to turn off lights
+                    if self.activate_on_daytime_switch:
                         self.refresh_timer()
                     action_done = "Activated"
 
