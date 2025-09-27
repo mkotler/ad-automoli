@@ -23,20 +23,20 @@ except ImportError:
 
 from collections.abc import Iterable
 from copy import deepcopy
-from datetime import date, datetime, time, timedelta
+from datetime import datetime, date, time, timedelta
+from dateutil import tz
+from packaging.version import Version
 from enum import Enum, IntEnum
 from inspect import stack
 import logging
-import os
 from pprint import pformat
 from typing import Any
+import os
 
-import adbase as ad
-from dateutil import tz
-from packaging.version import Version
 
 # pylint: disable=import-error
 import hassapi as hass
+import adbase as ad
 
 __version__ = "0.11.4"
 
@@ -387,7 +387,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
             self.getarg("transition_on_daytime_switch", False)
         )
 
-        # activate lights when daytime switches (works even with motion sensors)
+        # activate lights when daytime switches
         self.activate_on_daytime_switch: bool = bool(
             self.getarg("activate_on_daytime_switch", False)
         )
@@ -895,31 +895,15 @@ class AutoMoLi(hass.Hass):  # type: ignore
 
                 action_done = "Set"
 
-                # Determine if lights should be activated based on configuration
-                no_motion_sensor = not self.sensors[EntityType.MOTION.idx]
+                # Execute daytime changes when activated based on configuration
                 any_lights_on = any(
                     [self.get_state(light, copy=False) == "on" for light in self.lights]
                 )
 
-                # Check if we should turn on/off lights based on the daytime change
-                should_activate_lights = False
-                if self.activate_on_daytime_switch:
-                    # Force activation when daytime switches (works even with motion sensors)
-                    should_activate_lights = True
-                elif self.transition_on_daytime_switch:
-                    # Original behavior: execute daytime changes if:
-                    # - any lights are on since brightness may have changed
-                    # - the light_setting is a scene or script then want to execute it
-                    # - there is no motion sensor (so daytime is just being used as a timer)
-                    # But if there is a motion sensor and the lights are all off
-                    # and brightness changed, that's the one case when do not want to update
-                    should_activate_lights = any_lights_on or no_motion_sensor
-
-                if should_activate_lights:
+                if self.activate_on_daytime_switch or (self.transition_on_daytime_switch and any_lights_on):
                     self.lights_on(source="daytime change", force=True)
-                    # If lights were turned but there was no motion then make sure
-                    # to start the timer to turn off lights with the default delay
-                    if no_motion_sensor:
+                    # If there are no motion sensors, make sure to start the timer to turn off lights
+                    if not self.sensors[EntityType.MOTION.idx]:
                         self.refresh_timer()
                     action_done = "Activated"
 
@@ -1116,7 +1100,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 self.block_on_entities.add(entity)
             elif entity in self.block_on_entities:
                 self.block_on_entities.remove(entity)
-                # If this entity was just removed (unblocked) and activate_on_daytime_switch is enabled,
+                # If there aren't any entities in block_on_entities and activate_on_daytime_switch is enabled,
                 # check if lights should be turned on based on current daytime settings
                 if self.activate_on_daytime_switch and not self.block_on_entities:
                     # Get current light setting to determine if lights should be on
@@ -1130,11 +1114,11 @@ class AutoMoLi(hass.Hass):  # type: ignore
 
                     if should_turn_on_lights:
                         self.lg(
-                            f"Block cleared on {entity}, activate_on_daytime_switch enabled, "
+                            f"{stack()[0][3]} | Block cleared on {entity}, activate_on_daytime_switch enabled, "
                             f"and current daytime setting ({current_light_setting}) indicates lights should be on",
                             level=logging.DEBUG,
                         )
-                        self.lights_on(source="block_on entity cleared")
+                        self.lights_on(source="block on entities cleared")
 
     def block_off_change(
         self,
