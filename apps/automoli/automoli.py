@@ -312,7 +312,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
             # Any other list configuration is invalid
             else:
                 self.lg(
-                    f"Invalid list configuration in {config_name}: {config_value}. Using empty states.",
+                    f"Invalid list configuration in {config_name}: {config_value}. Ignoring entire configuration.",
                     level=logging.WARNING
                 )
                 return {"states": []}
@@ -333,7 +333,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 states = states
             else:
                 self.lg(
-                    f"Invalid states in {config_name}: {states} must be string or list of strings. Ignoring mapping.",
+                    f"Invalid states in {config_name}: {states} must be string or list of strings. Ignoring: {config_value}.",
                     level=logging.WARNING
                 )
                 return {"states": []}
@@ -368,7 +368,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
         # Invalid configuration type
         self.lg(
             f"Invalid configuration for {config_name}: {config_value} "
-            f"(type: {type(config_value)}). Using empty states.",
+            f"(type: {type(config_value)}). Ignoring entire configuration.",
             level=logging.WARNING
         )
         return {"states": []}

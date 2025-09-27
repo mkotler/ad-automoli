@@ -163,12 +163,12 @@ key | optional | type | default | description
 state | description
 -- | --
 None | Lights will be turned off after motion is detected, regardless of whether AutoMoLi turned the lights on.
-None | Lights will be turned off after motion is detected, regardless of whether AutoMoLi turned the lights on AND after the delay if they were turned on outside AutoMoLi (e.g., manually or via an automation). 
+False | Lights will be turned off after motion is detected, regardless of whether AutoMoLi turned the lights on AND after the delay if they were turned on outside AutoMoLi (e.g., manually or via an automation). 
 True | Lights will only be turned off after motion is detected, if AutoMoLi turned the lights on.
 
 ## Block States
 
-The `block_on_switch_states` and `block_off_switch_states` configurations now support time-windowed rules in addition to the existing simple state lists. This allows you to create blocking rules that only apply during specific time periods.
+The `block_on_switch_states` and `block_off_switch_states` configurations now support timing rules in addition to the existing simple state lists. This allows you to create blocking rules that only apply during specific time periods.
 
 ### Supported Configuration Formats
 
@@ -184,15 +184,10 @@ block_on_switch_states:
 #### Examples
 ```yaml
 # Block only during nighttime hours (22:30 to 06:30)
-block_on_switch_states:
-  states: "on"          # Can be string or list
-  start: "22:30"        # Start time (24-hour format)
-  end: "06:30"          # End time (24-hour format)
+block_on_switch_states: { states: "on", start: "22:30", end: "06:30" }
 
 # Block multiple states during specific hours
-block_off_switch_states:
-  states: ["on", "sleep"]
-  start: "23:00"
+block_off_switch_states: { states: ["on", "sleep"], start: "23:00", end: "07:00" }
   end: "07:00"
 ```
 
