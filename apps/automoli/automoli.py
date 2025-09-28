@@ -273,6 +273,281 @@ class AutoMoLi(hass.Hass):  # type: ignore
             filter(self.entity_exists, entity_list) if entities_exist else entity_list
         )
 
+    def parse_block_states(
+        self,
+        config_value: Any,
+        config_name: str,
+    ) -> dict[str, Any]:
+        """Parse block_on_switch_states or block_off_switch_states configuration.
+        
+        Accepts three canonical input shapes:
+        a) Scalar string: "on"
+        b) List of strings: ["on", "sleep"]
+        c) Single mapping: { states: "on", start: "22:30", end: "06:30" }
+        
+        Returns normalized rule as dict:
+        { "states": ["state1", "state2"], "start": "22:30", "end": "06:30" }
+        
+        Also schedules time window callbacks if time windows are specified.
+        """
+        if not config_value:
+            return {"states": []}
+        
+        # Handle scalar string - convert to simple rule
+        if isinstance(config_value, str):
+            return {"states": [config_value]}
+        
+        # Handle list - need to check for invalid time keys first
+        if isinstance(config_value, list):
+            # Check for time keys that shouldn't be in a list
+            has_time_keys = any(isinstance(item, str) and item in ["start", "end"] for item in config_value)
+            if has_time_keys:
+                self.lg(
+                    f"Invalid mixed configuration in {config_name}: cannot mix strings with time keys. "
+                    f"Ignoring entire configuration: {config_value}",
+                    level=logging.WARNING
+                )
+                return {"states": []}
+            # Handle pure list of strings
+            elif all(isinstance(item, str) for item in config_value):
+                return {"states": config_value}
+            # Any other list configuration is invalid
+            else:
+                self.lg(
+                    f"Invalid list configuration in {config_name}: {config_value}. Ignoring entire configuration.",
+                    level=logging.WARNING
+                )
+                return {"states": []}
+        
+        # Handle single mapping with time window
+        if isinstance(config_value, dict):
+            if "states" not in config_value:
+                self.lg(
+                    f"Invalid mapping in {config_name}: missing 'states' key. Ignoring: {config_value}",
+                    level=logging.WARNING
+                )
+                return {"states": []}
+            
+            states = config_value["states"]
+            if isinstance(states, str):
+                states = [states]
+            elif isinstance(states, list) and all(isinstance(s, str) for s in states):
+                states = states
+            else:
+                self.lg(
+                    f"Invalid states in {config_name}: {states} must be string or list of strings. Ignoring: {config_value}.",
+                    level=logging.WARNING
+                )
+                return {"states": []}
+            
+            result = {"states": states}
+            
+            # Add time window if provided and schedule callbacks
+            if "start" in config_value and "end" in config_value:
+                start_time = str(config_value["start"])
+                end_time = str(config_value["end"])
+                
+                # Validate time format (basic validation)
+                try:
+                    # Test parsing with hass built-in parser
+                    self.parse_time(start_time if start_time.count(":") == 2 else start_time + ":00")
+                    self.parse_time(end_time if end_time.count(":") == 2 else end_time + ":00")
+                    result["start"] = start_time
+                    result["end"] = end_time
+                    
+                    # Schedule timer callbacks for this time window
+                    self._schedule_time_window_callbacks(config_name, start_time, end_time)
+                    
+                except Exception as e:
+                    self.lg(
+                        f"Invalid time format in {config_name}: start='{start_time}', end='{end_time}'. Error: {e}. Ignoring time window.",
+                        level=logging.WARNING
+                    )
+            elif "start" in config_value or "end" in config_value:
+                self.lg(
+                    f"Incomplete time window in {config_name}: both 'start' and 'end' must be provided. Ignoring time window.",
+                    level=logging.WARNING
+                )
+            
+            return result
+        
+        # Invalid configuration type
+        self.lg(
+            f"Invalid configuration for {config_name}: {config_value} "
+            f"(type: {type(config_value)}). Ignoring entire configuration.",
+            level=logging.WARNING
+        )
+        return {"states": []}
+
+    def is_state_blocked(self, state: str, block_states: dict[str, Any]) -> bool:
+        """Check if a state is blocked by the block rule.
+        
+        Args:
+            state: The current state to check
+            block_states: Normalized block states from parse_block_states
+            
+        Returns:
+            True if the state should be blocked, False otherwise
+        """
+        # Check if state matches
+        if state in block_states["states"]:
+            # If no time window, always match
+            if "start" not in block_states or "end" not in block_states:
+                return True
+            
+            # Check if current time is within the window
+            start_time = block_states["start"]
+            end_time = block_states["end"]
+            
+            # Add seconds if not provided
+            if start_time.count(":") == 1:
+                start_time += ":00"
+            if end_time.count(":") == 1:
+                end_time += ":00"
+            
+            try:
+                if self.now_is_between(start_time, end_time):
+                    return True
+            except Exception as e:
+                self.lg(
+                    f"Error checking time window {start_time} to {end_time}: {e}. Treating as no time restriction.",
+                    level=logging.WARNING
+                )
+                # If time check fails, apply the rule without time restriction
+                return True
+        
+        return False
+
+    def _schedule_time_window_callbacks(self, config_name: str, start_time: str, end_time: str) -> None:
+        """Schedule timer callbacks for a specific time window."""
+        
+        try:
+            start_time_obj = self.parse_time(start_time if start_time.count(":") == 2 else start_time + ":00")
+            end_time_obj = self.parse_time(end_time if end_time.count(":") == 2 else end_time + ":00")
+            
+            # Schedule daily callbacks at start and end times
+            start_dt = self.AD.tz.localize(
+                datetime.combine(datetime.now(self.AD.tz).date(), start_time_obj)
+            )
+            end_dt = self.AD.tz.localize(
+                datetime.combine(datetime.now(self.AD.tz).date(), end_time_obj)
+            )
+            
+            # Determine which type of blocking this is for
+            is_block_on = config_name == "block_on_switch_states"
+            
+            self.run_daily(
+                self.check_time_window_blocks,
+                start_dt,
+                block_type="block_on" if is_block_on else "block_off",
+                is_start=True,
+            )
+            self.run_daily(
+                self.check_time_window_blocks,
+                end_dt,
+                block_type="block_on" if is_block_on else "block_off",
+                is_start=False,
+            )
+            
+        except Exception as e:
+            self.lg(
+                f"Error scheduling {config_name} time window checks: {e}",
+                level=logging.WARNING
+            )
+
+    def check_time_window_blocks(self, kwargs: dict[str, Any] | None = None) -> None:
+        """Optimized time window block checking with targeted entity updates."""
+        
+        if kwargs is None:
+            kwargs = {}
+            
+        block_type = kwargs.get("block_type", "both")  # "block_on", "block_off", or "both" 
+        is_start = kwargs.get("is_start", None)  # True for start, False for end, None for both
+        
+        # Handle block_on entities
+        if block_type in ["block_on", "both"]:
+            entities_to_check = self.block_on_switch_entities
+            block_states = self.block_on_switch_states
+            current_blocked_entities = self.block_on_entities
+            action_desc = "turning on"
+            
+            for entity in entities_to_check:
+                current_state = self.get_state(entity, copy=False)
+                is_blocked = self.is_state_blocked(str(current_state), block_states)
+                
+                if is_start is True:
+                    # Time window started - add eligible entities
+                    if is_blocked and entity not in current_blocked_entities:
+                        current_blocked_entities.add(entity)
+                        self.lg(
+                            f"Time window started: {entity} now blocking lights {action_desc}",
+                            level=logging.DEBUG,
+                        )
+                elif is_start is False:
+                    # Time window ended - remove entities that are no longer eligible
+                    if not is_blocked and entity in current_blocked_entities:
+                        current_blocked_entities.remove(entity)
+                        self.lg(
+                            f"Time window ended: {entity} no longer blocking lights {action_desc}",
+                            level=logging.DEBUG,
+                        )
+                else:
+                    # Full check (fallback for when is_start is None)
+                    if is_blocked and entity not in current_blocked_entities:
+                        current_blocked_entities.add(entity)
+                        self.lg(
+                            f"Time window started: {entity} now blocking lights {action_desc}",
+                            level=logging.DEBUG,
+                        )
+                    elif not is_blocked and entity in current_blocked_entities:
+                        current_blocked_entities.remove(entity)
+                        self.lg(
+                            f"Time window ended: {entity} no longer blocking lights {action_desc}",
+                            level=logging.DEBUG,
+                        )
+        
+        # Handle block_off entities
+        if block_type in ["block_off", "both"]:
+            entities_to_check = self.block_off_switch_entities
+            block_states = self.block_off_switch_states
+            current_blocked_entities = self.block_off_entities
+            action_desc = "turning off"
+            
+            for entity in entities_to_check:
+                current_state = self.get_state(entity, copy=False)
+                is_blocked = self.is_state_blocked(str(current_state), block_states)
+                
+                if is_start is True:
+                    # Time window started - add eligible entities
+                    if is_blocked and entity not in current_blocked_entities:
+                        current_blocked_entities.add(entity)
+                        self.lg(
+                            f"Time window started: {entity} now blocking lights {action_desc}",
+                            level=logging.DEBUG,
+                        )
+                elif is_start is False:
+                    # Time window ended - remove entities that are no longer eligible
+                    if not is_blocked and entity in current_blocked_entities:
+                        current_blocked_entities.remove(entity)
+                        self.lg(
+                            f"Time window ended: {entity} no longer blocking lights {action_desc}",
+                            level=logging.DEBUG,
+                        )
+                else:
+                    # Full check (fallback for when is_start is None)
+                    if is_blocked and entity not in current_blocked_entities:
+                        current_blocked_entities.add(entity)
+                        self.lg(
+                            f"Time window started: {entity} now blocking lights {action_desc}",
+                            level=logging.DEBUG,
+                        )
+                    elif not is_blocked and entity in current_blocked_entities:
+                        current_blocked_entities.remove(entity)
+                        self.lg(
+                            f"Time window ended: {entity} no longer blocking lights {action_desc}",
+                            level=logging.DEBUG,
+                        )
+
     def getarg(
         self,
         name: str,
@@ -456,8 +731,8 @@ class AutoMoLi(hass.Hass):  # type: ignore
         self.block_on_switch_entities: list[str] = list(
             self.listr(self.getarg("block_on_switch_entities", set()))
         )
-        self.block_on_switch_states: set[str] = self.listr(
-            self.getarg("block_on_switch_states", set(["off"])), False
+        self.block_on_switch_states: dict[str, Any] = self.parse_block_states(
+            self.getarg("block_on_switch_states", ["off"]), "block_on_switch_states"
         )
         # set up event listener for each block_on entity
         for block_on_entity in self.block_on_switch_entities:
@@ -468,9 +743,8 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 )
             )
             # Check if block_on_entity it is currently on
-            if (
-                self.get_state(block_on_entity, copy=False)
-                in self.block_on_switch_states
+            if self.is_state_blocked(
+                self.get_state(block_on_entity, copy=False), self.block_on_switch_states
             ):
                 self.block_on_entities.add(block_on_entity)
 
@@ -479,8 +753,8 @@ class AutoMoLi(hass.Hass):  # type: ignore
         self.block_off_switch_entities: list[str] = list(
             self.listr(self.getarg("block_off_switch_entities", set()))
         )
-        self.block_off_switch_states: set[str] = self.listr(
-            self.getarg("block_off_switch_states", set(["off"])), False
+        self.block_off_switch_states: dict[str, Any] = self.parse_block_states(
+            self.getarg("block_off_switch_states", ["off"]), "block_off_switch_states"
         )
         # set up event listener for each block_off entity
         for block_off_entity in self.block_off_switch_entities:
@@ -491,9 +765,8 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 )
             )
             # Check if block_off_entity it is currently on
-            if (
-                self.get_state(block_off_entity, copy=False)
-                in self.block_off_switch_states
+            if self.is_state_blocked(
+                self.get_state(block_off_entity, copy=False), self.block_off_switch_states
             ):
                 self.block_off_entities.add(block_off_entity)
 
@@ -773,12 +1046,12 @@ class AutoMoLi(hass.Hass):  # type: ignore
             self.args.update(
                 {"block_on_switch_entities": self.block_on_switch_entities}
             )
-            self.args.update({"block_on_switch_states": self.block_on_switch_states})
+            self.args.update({"block_on_switch_states": self.block_on_switch_states["states"]})
         if self.block_off_switch_entities:
             self.args.update(
                 {"block_off_switch_entities": self.block_off_switch_entities}
             )
-            self.args.update({"block_off_switch_states": self.block_off_switch_states})
+            self.args.update({"block_off_switch_states": self.block_off_switch_states["states"]})
 
         # add override delay entities to config if given
         if self.override_delay_entities:
@@ -1102,7 +1375,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
             level=logging.DEBUG,
         )
         if old != new:
-            if new in self.block_on_switch_states:
+            if self.is_state_blocked(str(new), self.block_on_switch_states):
                 self.block_on_entities.add(entity)
             elif entity in self.block_on_entities:
                 self.block_on_entities.remove(entity)
@@ -1122,7 +1395,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
             level=logging.DEBUG,
         )
         if old != new:
-            if new in self.block_off_switch_states:
+            if self.is_state_blocked(str(new), self.block_off_switch_states):
                 self.block_off_entities.add(entity)
             elif entity in self.block_off_entities:
                 self.block_off_entities.remove(entity)

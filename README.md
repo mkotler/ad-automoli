@@ -147,9 +147,9 @@ key | optional | type | default | description
 `disable_switch_entities` | True | list/string | | One or more Home Assistant Entities as switch for AutoMoLi. If the state of **any** entity is *off*, AutoMoLi is *deactivated*. (Use an *input_boolean* for example)
 `disable_switch_states` | True | list/string | ["off"] | Custom states for `disable_switch_entities`. If the state of **any** entity is *in this list*, AutoMoLi is *deactivated*. Can be used to disable with `media_players` in `playing` state for example.
 `block_on_switch_entities` | True | list/string | | If the state of **any** entity is *off*, AutoMoLi will not turn *on* lights until the entity is no longer *off*. (Use an *input_boolean* for example)
-`block_on_switch_states` | True | list/string | ["off"] | Custom states for `block_on_switch_entities`. If the state of **any** entity is *in this list*, AutoMoLi will not turn *on* lights until the entity is no longer in this list. Can be used to block turning on bedroom lights if someone is in bed, for example.
+`block_on_switch_states` | True | list/string | ["off"] | Custom states for `block_on_switch_entities`. If the state of **any** entity is *in this list*, AutoMoLi will not turn *on* lights until the entity is no longer in this list. Supports time windows: `{ states: ["on","sleep"], start: "22:30", end: "06:30" }`. Can be used to block turning on bedroom lights if someone is in bed during night hours, for example.
 `block_off_switch_entities` | True | list/string | | If the state of **any** entity is *off*, AutoMoLi will not turn *off* lights until the entity is no longer *off*. (Use an *input_boolean* for example)
-`block_off_switch_states` | True | list/string | ["off"] | Custom states for `block_off_switch_entities`. If the state of **any** entity is *in this list*, AutoMoLi will not turn *off* lights until the entity is no longer in this list. Can be used to block turning off lights if the bathroom door is closed for example.
+`block_off_switch_states` | True | list/string | ["off"] | Custom states for `block_off_switch_entities`. If the state of **any** entity is *in this list*, AutoMoLi will not turn *off* lights until the entity is no longer in this list. Supports time windows: `{ states: "on", start: "22:30", end: "06:30" }`. Can be used to block turning off lights if the bathroom door is closed during night hours for example.
 `disable_hue_groups` | False | boolean | | Disable the use of Hue Groups/Scenes
 `override_delay_entities` | True | list/string |  | One ore more Home Assistant Entities that when a state change to "on" happens will override the delay (e.g., opening a door would reduce the timer to default 60 seconds for turning off the room's  lights )
 `override_delay` | True | integer | 60 | Seconds to update delay to when one of the entities in `override_delay_entities` changes its state to "on"
@@ -165,6 +165,38 @@ state | description
 None | Lights will be turned off after motion is detected, regardless of whether AutoMoLi turned the lights on.
 False | Lights will be turned off after motion is detected, regardless of whether AutoMoLi turned the lights on AND after the delay if they were turned on outside AutoMoLi (e.g., manually or via an automation). 
 True | Lights will only be turned off after motion is detected, if AutoMoLi turned the lights on.
+
+## Block States
+
+The `block_on_switch_states` and `block_off_switch_states` configurations now support timing rules in addition to the existing simple state lists. This allows you to create blocking rules that only apply during specific time periods.
+
+### Supported Configuration Formats
+
+#### Simple string or list (backward compatible)
+```yaml
+block_on_switch_states: "on"
+# or
+block_on_switch_states: 
+  - "on"
+  - "sleep"
+```
+
+#### Examples
+```yaml
+# Block only during nighttime hours (22:30 to 06:30)
+block_on_switch_states: { states: "on", start: "22:30", end: "06:30" }
+
+# Block multiple states during specific hours
+block_off_switch_states: { states: ["on", "sleep"], start: "23:00", end: "07:00" }
+  end: "07:00"
+```
+
+### Notes
+- Time windows support overnight spans (e.g., 22:30 to 06:30)
+- Both `start` and `end` times must be provided
+- Times use 24-hour format (HH:MM or HH:MM:SS)
+- Invalid configurations will be logged as warnings and ignored
+- Mixed configurations (combining simple strings with time mappings) are not supported
 
 ## Home Assistant
 **AutoMoLi** has been designed to be integrated into [**Home Assistant**](https://www.home-assistant.io/). As part of that integration, AutoMoLi will create an entity per room with attributes that track what is happening in the room.  Each entity is named automoli.room_name. Here is an example of automoli.office:
