@@ -43,7 +43,7 @@ livingroom:
     - { starttime: "07:30", name: day, light: "scene.livingroom_working" }
 
       # This rule"evening" uses a percentage brightness value, and the lights specified in lights: below will be set to 90%
-    - { starttime: "sunset-01:00", name: evening, light: 90 }
+    - { starttime: "sunset - 01:00", name: evening, light: 90 }
 
     - { starttime: "22:30", name: night, light: 20 }
 
@@ -78,7 +78,7 @@ bathroom:
     - { starttime: "05:30", name: morning, light: 45 }
     - { starttime: "07:30", name: day, light: "scene.bathroom_day" }
     - { starttime: "20:30", name: evening, light: 100 }
-    - { starttime: "sunset+01:00", name: night, light: 0 }
+    - { starttime: "sunset + 01:00", name: night, light: 0 }
 
   # As this is a bathroom there could be the case that when taking a bath or shower, motion is not detected and the lights turn off, which isnt helpful, so the following settings allow you to use a humidity sensor and humidity threshold to prevent this by detecting the humidity from the shower and blocking the lights turning off.
   humidity:
@@ -115,8 +115,8 @@ key | optional | type | default | description
 `daytimes` | True | list | *see code* | Different daytimes with light settings (see below)
 `lights` | True | list/string | *auto detect* | Light entities that are both turned on and off by automoli
 `motion` | True | list/string | *auto detect* | Motion sensor entities
-`motion_state_on` | True | integer | | If using motion sensors that don't send events when activated (currently AutoMoLi only handles events Aqara or Xiaomi sensors with the Aqara Gateway integration), add this to your config with "on". This will listen to state changes instead.
-`motion_state_off` | True | integer | | Paired with `motion_state_on` AutoMoLi will listen to state changes when a motion event isn't sent (from the Aqara Gateway integration)
+`motion_state_on` | True | string | | If using motion sensors that don't send events when activated (currently AutoMoLi only handles events Aqara or Xiaomi sensors with the Aqara Gateway integration), add this to your config with "on". This will listen to state changes instead.
+`motion_state_off` | True | string | | Paired with `motion_state_on` AutoMoLi will listen to state changes when a motion event isn't sent (from the Aqara Gateway integration)
 `illuminance` | True | list/string |  | Illuminance sensor entities
 `illuminance_threshold` | True | integer |  | If illuminance is *above* this value, lights will *not switched on*
 `humidity` | True | list/string |  | Humidity sensor entities
@@ -126,7 +126,7 @@ key | optional | type | default | description
 
 key | optional | type | default | description
 -- | -- | -- | -- | --
-`starttime` | False | string | | Time this daytime starts or sunrise|sunset [+|- HH:MM]
+`starttime` | False | string | | Time this daytime starts or sunrise|sunset [+|- HH:MM].  Note: There needs to be a space before and after the +|-. "sunrise+01:00" will not work. Use "sunrise + 01:00" instead.
 `name` | False | string | | A name for this daytime
 `delay` | True | integer | 150 | Seconds without motion until lights will switched off. Can be disabled (lights stay always on) with `0`. Setting this will overwrite the global `delay` setting for this daytime.
 `light` | False | integer/string | | Either a percent integer value (0-100) or an entity (including a scene or script) to turn on when daytime starts
@@ -138,7 +138,7 @@ Note: If there is only one daytime, the light and delay settings will be applied
 key | optional | type | default | description
 -- | -- | -- | -- | --
 `dependencies` | True | string | None | If you set configuration options under an app named "default" then those will become the defaults across all rooms (but can still be overridden within a specific room). Specify `dependencies: default` so that any changes to the "default" app will be automatically picked up.
-`transition_on_daytime_switch` | True | bool | False | directly activate a daytime on its start time (instead to just set it as active daytime used if lights are switched from off to on)
+`transition_on_daytime_switch` | True | bool | False | Adjust lights at a daytime's start time (instead to just setting it as active). However, will only turn a light on (if it was off) if no motion sensor has been defined and daytimes are just being used as a timer.
 `after_on` | True | list/string | None | After lights are turned on, this list of entities will also be turned on.  Unlike `lights` this can include scenes and scripts.
 `after_off` | True | list/string | None | After lights are turned off, this list of entities will also be turned on.  Like `after_on` this can also include scenes and scripts.
 `only_own_events` | True | bool | None | Track if automoli switched this light on. If not, automoli will not switch the light off. (see below)
