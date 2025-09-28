@@ -287,6 +287,8 @@ class AutoMoLi(hass.Hass):  # type: ignore
         
         Returns normalized rule as dict:
         { "states": ["state1", "state2"], "start": "22:30", "end": "06:30" }
+        
+        Also schedules time window callbacks if time windows are specified.
         """
         if not config_value:
             return {"states": []}
@@ -340,7 +342,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
             
             result = {"states": states}
             
-            # Add time window if provided
+            # Add time window if provided and schedule callbacks
             if "start" in config_value and "end" in config_value:
                 start_time = str(config_value["start"])
                 end_time = str(config_value["end"])
@@ -352,6 +354,10 @@ class AutoMoLi(hass.Hass):  # type: ignore
                     self.parse_time(end_time if end_time.count(":") == 2 else end_time + ":00")
                     result["start"] = start_time
                     result["end"] = end_time
+                    
+                    # Schedule timer callbacks for this time window
+                    self._schedule_time_window_callbacks(config_name, start_time, end_time)
+                    
                 except Exception as e:
                     self.lg(
                         f"Invalid time format in {config_name}: start='{start_time}', end='{end_time}'. Error: {e}. Ignoring time window.",
@@ -412,113 +418,135 @@ class AutoMoLi(hass.Hass):  # type: ignore
         
         return False
 
-    def check_time_window_blocks(self, kwargs: dict[str, Any] | None = None) -> None:
-        """Check and update block entities based on current time windows."""
+    def _schedule_time_window_callbacks(self, config_name: str, start_time: str, end_time: str) -> None:
+        """Schedule timer callbacks for a specific time window."""
         
-        # Check block_on entities
-        for entity in self.block_on_switch_entities:
-            current_state = self.get_state(entity, copy=False)
-            is_blocked = self.is_state_blocked(str(current_state), self.block_on_switch_states)
+        try:
+            start_time_obj = self.parse_time(start_time if start_time.count(":") == 2 else start_time + ":00")
+            end_time_obj = self.parse_time(end_time if end_time.count(":") == 2 else end_time + ":00")
             
-            if is_blocked and entity not in self.block_on_entities:
-                self.block_on_entities.add(entity)
-                self.lg(
-                    f"Time window started: {entity} now blocking lights turning on",
-                    level=logging.DEBUG,
-                )
-            elif not is_blocked and entity in self.block_on_entities:
-                self.block_on_entities.remove(entity)
-                self.lg(
-                    f"Time window ended: {entity} no longer blocking lights turning on",
-                    level=logging.DEBUG,
-                )
-        
-        # Check block_off entities
-        for entity in self.block_off_switch_entities:
-            current_state = self.get_state(entity, copy=False)
-            is_blocked = self.is_state_blocked(str(current_state), self.block_off_switch_states)
+            # Schedule daily callbacks at start and end times
+            start_dt = self.AD.tz.localize(
+                datetime.combine(datetime.now(self.AD.tz).date(), start_time_obj)
+            )
+            end_dt = self.AD.tz.localize(
+                datetime.combine(datetime.now(self.AD.tz).date(), end_time_obj)
+            )
             
-            if is_blocked and entity not in self.block_off_entities:
-                self.block_off_entities.add(entity)
-                self.lg(
-                    f"Time window started: {entity} now blocking lights turning off",
-                    level=logging.DEBUG,
-                )
-            elif not is_blocked and entity in self.block_off_entities:
-                self.block_off_entities.remove(entity)
-                self.lg(
-                    f"Time window ended: {entity} no longer blocking lights turning off",
-                    level=logging.DEBUG,
-                )
+            # Determine which type of blocking this is for
+            is_block_on = config_name == "block_on_switch_states"
+            
+            self.run_daily(
+                self.check_time_window_blocks,
+                start_dt,
+                block_type="block_on" if is_block_on else "block_off",
+                is_start=True,
+            )
+            self.run_daily(
+                self.check_time_window_blocks,
+                end_dt,
+                block_type="block_on" if is_block_on else "block_off",
+                is_start=False,
+            )
+            
+        except Exception as e:
+            self.lg(
+                f"Error scheduling {config_name} time window checks: {e}",
+                level=logging.WARNING
+            )
 
-    def schedule_time_window_checks(self) -> None:
-        """Schedule timer callbacks for time window start and end times."""
+    def check_time_window_blocks(self, kwargs: dict[str, Any] | None = None) -> None:
+        """Optimized time window block checking with targeted entity updates."""
         
-        # Handle block_on time windows
-        if "start" in self.block_on_switch_states and "end" in self.block_on_switch_states:
-            start_time = self.block_on_switch_states["start"]
-            end_time = self.block_on_switch_states["end"]
+        if kwargs is None:
+            kwargs = {}
             
-            # Parse times and schedule daily callbacks
-            try:
-                start_time_obj = self.parse_time(start_time if start_time.count(":") == 2 else start_time + ":00")
-                end_time_obj = self.parse_time(end_time if end_time.count(":") == 2 else end_time + ":00")
-                
-                # Schedule daily callbacks at start and end times
-                start_dt = self.AD.tz.localize(
-                    datetime.combine(datetime.now(self.AD.tz).date(), start_time_obj)
-                )
-                end_dt = self.AD.tz.localize(
-                    datetime.combine(datetime.now(self.AD.tz).date(), end_time_obj)
-                )
-                
-                self.run_daily(
-                    self.check_time_window_blocks,
-                    start_dt,
-                )
-                self.run_daily(
-                    self.check_time_window_blocks,
-                    end_dt,
-                )
-                
-            except Exception as e:
-                self.lg(
-                    f"Error scheduling block_on time window checks: {e}",
-                    level=logging.WARNING
-                )
+        block_type = kwargs.get("block_type", "both")  # "block_on", "block_off", or "both" 
+        is_start = kwargs.get("is_start", None)  # True for start, False for end, None for both
         
-        # Handle block_off time windows
-        if "start" in self.block_off_switch_states and "end" in self.block_off_switch_states:
-            start_time = self.block_off_switch_states["start"]
-            end_time = self.block_off_switch_states["end"]
+        # Handle block_on entities
+        if block_type in ["block_on", "both"]:
+            entities_to_check = self.block_on_switch_entities
+            block_states = self.block_on_switch_states
+            current_blocked_entities = self.block_on_entities
+            action_desc = "turning on"
             
-            # Parse times and schedule daily callbacks
-            try:
-                start_time_obj = self.parse_time(start_time if start_time.count(":") == 2 else start_time + ":00")
-                end_time_obj = self.parse_time(end_time if end_time.count(":") == 2 else end_time + ":00")
+            for entity in entities_to_check:
+                current_state = self.get_state(entity, copy=False)
+                is_blocked = self.is_state_blocked(str(current_state), block_states)
                 
-                # Schedule daily callbacks at start and end times
-                start_dt = self.AD.tz.localize(
-                    datetime.combine(datetime.now(self.AD.tz).date(), start_time_obj)
-                )
-                end_dt = self.AD.tz.localize(
-                    datetime.combine(datetime.now(self.AD.tz).date(), end_time_obj)
-                )
+                if is_start is True:
+                    # Time window started - add eligible entities
+                    if is_blocked and entity not in current_blocked_entities:
+                        current_blocked_entities.add(entity)
+                        self.lg(
+                            f"Time window started: {entity} now blocking lights {action_desc}",
+                            level=logging.DEBUG,
+                        )
+                elif is_start is False:
+                    # Time window ended - remove entities that are no longer eligible
+                    if not is_blocked and entity in current_blocked_entities:
+                        current_blocked_entities.remove(entity)
+                        self.lg(
+                            f"Time window ended: {entity} no longer blocking lights {action_desc}",
+                            level=logging.DEBUG,
+                        )
+                else:
+                    # Full check (fallback for when is_start is None)
+                    if is_blocked and entity not in current_blocked_entities:
+                        current_blocked_entities.add(entity)
+                        self.lg(
+                            f"Time window started: {entity} now blocking lights {action_desc}",
+                            level=logging.DEBUG,
+                        )
+                    elif not is_blocked and entity in current_blocked_entities:
+                        current_blocked_entities.remove(entity)
+                        self.lg(
+                            f"Time window ended: {entity} no longer blocking lights {action_desc}",
+                            level=logging.DEBUG,
+                        )
+        
+        # Handle block_off entities
+        if block_type in ["block_off", "both"]:
+            entities_to_check = self.block_off_switch_entities
+            block_states = self.block_off_switch_states
+            current_blocked_entities = self.block_off_entities
+            action_desc = "turning off"
+            
+            for entity in entities_to_check:
+                current_state = self.get_state(entity, copy=False)
+                is_blocked = self.is_state_blocked(str(current_state), block_states)
                 
-                self.run_daily(
-                    self.check_time_window_blocks,
-                    start_dt,
-                )
-                self.run_daily(
-                    self.check_time_window_blocks,
-                    end_dt,
-                )
-                
-            except Exception as e:
-                self.lg(
-                    f"Error scheduling block_off time window checks: {e}",
-                    level=logging.WARNING
-                )
+                if is_start is True:
+                    # Time window started - add eligible entities
+                    if is_blocked and entity not in current_blocked_entities:
+                        current_blocked_entities.add(entity)
+                        self.lg(
+                            f"Time window started: {entity} now blocking lights {action_desc}",
+                            level=logging.DEBUG,
+                        )
+                elif is_start is False:
+                    # Time window ended - remove entities that are no longer eligible
+                    if not is_blocked and entity in current_blocked_entities:
+                        current_blocked_entities.remove(entity)
+                        self.lg(
+                            f"Time window ended: {entity} no longer blocking lights {action_desc}",
+                            level=logging.DEBUG,
+                        )
+                else:
+                    # Full check (fallback for when is_start is None)
+                    if is_blocked and entity not in current_blocked_entities:
+                        current_blocked_entities.add(entity)
+                        self.lg(
+                            f"Time window started: {entity} now blocking lights {action_desc}",
+                            level=logging.DEBUG,
+                        )
+                    elif not is_blocked and entity in current_blocked_entities:
+                        current_blocked_entities.remove(entity)
+                        self.lg(
+                            f"Time window ended: {entity} no longer blocking lights {action_desc}",
+                            level=logging.DEBUG,
+                        )
 
     def getarg(
         self,
@@ -741,9 +769,6 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 self.get_state(block_off_entity, copy=False), self.block_off_switch_states
             ):
                 self.block_off_entities.add(block_off_entity)
-
-        # Schedule time window checks for block states
-        self.schedule_time_window_checks()
 
         # sensors that will change current default delay
         self.override_delay_entities: set[str] = self.listr(
