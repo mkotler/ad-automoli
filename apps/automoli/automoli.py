@@ -594,7 +594,10 @@ class AutoMoLi(hass.Hass):  # type: ignore
         )
 
         # Set activate_on_daytime_switch to True if no motion sensors and not explicitly configured
-        if not self.sensors[EntityType.MOTION.idx] and "activate_on_daytime_switch" not in self.args:
+        if (
+            not self.sensors[EntityType.MOTION.idx]
+            and "activate_on_daytime_switch" not in self.args
+        ):
             self.activate_on_daytime_switch = True
 
         self.room = Room(
@@ -904,13 +907,15 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 # - any lights are on since brightness may have changed
                 # - the light_setting is a scene or script then want to execute it
                 # But if transition_on_daytime_switch is True, the lights are all off,
-                # and brightness changed, don't update or else could turn on the 
+                # and brightness changed, don't update or else could turn on the
                 # lights even when no motion is detected
                 any_lights_on = any(
                     [self.get_state(light, copy=False) == "on" for light in self.lights]
                 )
 
-                if self.activate_on_daytime_switch or (self.transition_on_daytime_switch and any_lights_on):
+                if self.activate_on_daytime_switch or (
+                    self.transition_on_daytime_switch and any_lights_on
+                ):
                     self.lights_on(source="daytime change", force=True)
                     # If activate_on_daytime_switch is True, make sure to start the timer to turn off lights
                     if self.activate_on_daytime_switch:
@@ -1952,7 +1957,11 @@ class AutoMoLi(hass.Hass):  # type: ignore
                         at_least_one_turned_on = True
 
                 if at_least_one_turned_on:
-                    if source != "daytime change" and source != "<unknown>":
+                    if (
+                        source != "daytime change"
+                        and source != "block on entities cleared"
+                        and source != "<unknown>"
+                    ):
                         source = self.get_name(source)
 
                     # if room is not already "on" update stats
@@ -2037,7 +2046,11 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 )
 
             if at_least_one_turned_on:
-                if source != "daytime change" and source != "<unknown>":
+                if (
+                    source != "daytime change"
+                    and source != "block on entities cleared"
+                    and source != "<unknown>"
+                ):
                     source = self.get_name(source)
 
                 # if room is not already "on" update stats
