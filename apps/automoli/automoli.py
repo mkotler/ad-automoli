@@ -597,6 +597,12 @@ class AutoMoLi(hass.Hass):  # type: ignore
         if (
             not self.sensors[EntityType.MOTION.idx]
             and "activate_on_daytime_switch" not in self.args
+            and not (
+                CONFIG_APPNAME in self.app_config
+                and hasattr(
+                    self.app_config[CONFIG_APPNAME], "activate_on_daytime_switch"
+                )
+            )
         ):
             self.activate_on_daytime_switch = True
 
