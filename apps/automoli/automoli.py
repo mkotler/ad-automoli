@@ -387,6 +387,11 @@ class AutoMoLi(hass.Hass):  # type: ignore
             self.getarg("transition_on_daytime_switch", False)
         )
 
+        # activate lights when daytime switches
+        self.activate_on_daytime_switch: bool = bool(
+            self.getarg("activate_on_daytime_switch", False)
+        )
+
         # state values
         self.states = {
             "motion_on": self.getarg("motion_state_on", None),
@@ -588,6 +593,19 @@ class AutoMoLi(hass.Hass):  # type: ignore
             )
         )
 
+        # Set activate_on_daytime_switch to True if no motion sensors and not explicitly configured
+        if (
+            not self.sensors[EntityType.MOTION.idx]
+            and "activate_on_daytime_switch" not in self.args
+            and not (
+                CONFIG_APPNAME in self.app_config
+                and hasattr(
+                    self.app_config[CONFIG_APPNAME], "activate_on_daytime_switch"
+                )
+            )
+        ):
+            self.activate_on_daytime_switch = True
+
         self.room = Room(
             name=self.room_name,
             room_lights=self.lights,
@@ -742,6 +760,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 "active_daytime": self.active_daytime,
                 "daytimes": daytimes,
                 "transition_on_daytime_switch": self.transition_on_daytime_switch,
+                "activate_on_daytime_switch": self.activate_on_daytime_switch,
                 "lights": self.lights,
                 "dim": self.dim,
                 "sensors": self.sensors,
@@ -889,27 +908,23 @@ class AutoMoLi(hass.Hass):  # type: ignore
 
                 action_done = "Set"
 
-                # If transition_on_daytime_switch then execute the daytime changes if:
+                # Execute the daytime changes if either activation_on_daytime_switch == True
+                # (without any conditions) or transition_on_daytime_switch == True and
                 # - any lights are on since brightness may have changed
                 # - the light_setting is a scene or script then want to execute it
-                # - there is no motion sensor (so daytime is just being used as a timer)
-                # But if there is a motion sensor and the lights are all off
-                # and brightness changed, that's the one case when do not want to update
-                # (or else could turn on the lights even when no motion is detected)
-                no_motion_sensor = not self.sensors[EntityType.MOTION.idx]
-                if self.transition_on_daytime_switch and (
-                    any(
-                        [
-                            self.get_state(light, copy=False) == "on"
-                            for light in self.lights
-                        ]
-                    )
-                    or no_motion_sensor
+                # But if transition_on_daytime_switch is True, the lights are all off,
+                # and brightness changed, don't update or else could turn on the
+                # lights even when no motion is detected
+                any_lights_on = any(
+                    [self.get_state(light, copy=False) == "on" for light in self.lights]
+                )
+
+                if self.activate_on_daytime_switch or (
+                    self.transition_on_daytime_switch and any_lights_on
                 ):
                     self.lights_on(source="daytime change", force=True)
-                    # If lights were turned but there was no motion then make sure
-                    # to start the timer to turn off lights with the default delay
-                    if no_motion_sensor:
+                    # If activate_on_daytime_switch is True, make sure to start the timer to turn off lights
+                    if self.activate_on_daytime_switch:
                         self.refresh_timer()
                     action_done = "Activated"
 
@@ -1106,6 +1121,26 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 self.block_on_entities.add(entity)
             elif entity in self.block_on_entities:
                 self.block_on_entities.remove(entity)
+                # If there aren't any entities in block_on_entities and activate_on_daytime_switch is enabled,
+                # check if lights should be turned on based on current daytime settings
+                if self.activate_on_daytime_switch and not self.block_on_entities:
+                    # Get current light setting to determine if lights should be on
+                    current_light_setting = self.active.get("light_setting", 0)
+                    should_turn_on_lights = (
+                        isinstance(current_light_setting, int)
+                        and current_light_setting > 0
+                    ) or not isinstance(
+                        current_light_setting, int
+                    )  # scenes/scripts
+
+                    if should_turn_on_lights:
+                        self.lg(
+                            f"{stack()[0][3]} | Block cleared on {entity}, activate_on_daytime_switch enabled, "
+                            f"and current daytime setting ({current_light_setting}) indicates lights should be on",
+                            level=logging.DEBUG,
+                        )
+                        self.lights_on(source="block on entities cleared")
+                        self.refresh_timer()
 
     def block_off_change(
         self,
@@ -1928,7 +1963,11 @@ class AutoMoLi(hass.Hass):  # type: ignore
                         at_least_one_turned_on = True
 
                 if at_least_one_turned_on:
-                    if source != "daytime change" and source != "<unknown>":
+                    if (
+                        source != "daytime change"
+                        and source != "block on entities cleared"
+                        and source != "<unknown>"
+                    ):
                         source = self.get_name(source)
 
                     # if room is not already "on" update stats
@@ -2013,7 +2052,11 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 )
 
             if at_least_one_turned_on:
-                if source != "daytime change" and source != "<unknown>":
+                if (
+                    source != "daytime change"
+                    and source != "block on entities cleared"
+                    and source != "<unknown>"
+                ):
                     source = self.get_name(source)
 
                 # if room is not already "on" update stats
