@@ -644,6 +644,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
         self.sensor_attr: dict[str, Any] = {}
         self.sensor_update_handles: set[str] = set()
         self.sensor_lastTurningOffAt: str = "<unknown>"
+        self.sensor_lastTurnOffDelay: int = 0
         self.init_room_stats()
         self.run_daily(
             self.reset_room_stats,
@@ -1481,8 +1482,9 @@ class AutoMoLi(hass.Hass):  # type: ignore
             self.run_in(
                 self.update_room_stats,
                 DEFAULT_UPDATE_STATS_DELAY,
-                stat="refresh_timer",
+                stat="refreshTimer",
                 time=-1,
+                delay=0,
             )
             self.clear_handles()
             return
@@ -1551,6 +1553,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
                     DEFAULT_UPDATE_STATS_DELAY,
                     stat="refreshTimer",
                     time=timer_info[0],
+                    delay=delay,
                 )
 
             if self.warning_flash and refresh_type != "override_delay":
@@ -1570,6 +1573,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 DEFAULT_UPDATE_STATS_DELAY,
                 stat="refreshTimer",
                 time=0,
+                delay=0,
             )
             self.lg(
                 f"{stack()[0][3]} | No delay was set or delay = 0, lights will not be switched off by AutoMoLi",
@@ -2937,6 +2941,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 sensor_attr["times_turned_off_manually"] = countManualOff + 1
             source = kwargs.get("source", "<unknown>")
             sensor_attr["last_turned_off_by"] = source
+            self.sensor_lastTurnOffDelay = 0
             sensor_attr.pop("turning_off_at", "")
             sensor_attr.pop("blocked_off_by", "")
             if sensor_attr.get("disabled_by", "") != "Cooling down":
@@ -2950,6 +2955,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
 
         elif stat == "refreshTimer":
             time = kwargs.get("time")
+            self.sensor_lastTurnOffDelay = int(kwargs.get("delay", 0) or 0)
             # If time is -1 then lights were not actually turned on when refresh_timer
             # function was called so no need to track turning_off_at
             if time == -1:
@@ -2959,13 +2965,12 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 sensor_attr["turning_off_at"] = turningOffAt
                 self.sensor_lastTurningOffAt = turningOffAt
             else:
-                # Ensure time is timezone-aware and in UTC before converting to local timezone
-                local_timezone = tz.tzlocal()
+                # AppDaemon timers may already be in the configured timezone, and can be
+                # returned as naive datetimes. Only convert timezone-aware values.
                 if time:
-                    if getattr(time, "tzinfo", None) is None:
-                        time = time.replace(tzinfo=tz.UTC)
-                    time_local = time.astimezone(local_timezone)
-                    turningOffAt = time_local.strftime(DATETIME_FORMAT)
+                    if getattr(time, "tzinfo", None) is not None:
+                        time = time.astimezone(self.AD.tz)
+                    turningOffAt = time.strftime(DATETIME_FORMAT)
                 else:
                     turningOffAt = "<unknown>"
                 sensor_attr["turning_off_at"] = turningOffAt
@@ -3049,7 +3054,9 @@ class AutoMoLi(hass.Hass):  # type: ignore
     # If lights are on but shouldn't be, this is a last resort to try to force them off
     def debug_room_stats(self, stat: str) -> None:
         # As above, subtract 1 second since update_room_stats is called with a 1 second delay
-        currentTime = datetime.now() - timedelta(seconds=1)
+        currentTime = datetime.now(self.AD.tz).replace(tzinfo=None) - timedelta(
+            seconds=1
+        )
         forceLightsOff = False
         error = False
 
@@ -3221,7 +3228,11 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 self.last_room_stats_error = "UNEXPECTED_ERROR"
         if forceLightsOff:
             # using 0.1 instead of 0 to workaround appdaemon issue #2405
-            self.run_in(self.lights_off, 0.1)
+            self.run_in(
+                self.lights_off,
+                0.1,
+                timeDelay=self.sensor_lastTurnOffDelay,
+            )
 
     # Global lock ensures that multiple log writes occur together when printing room stats
     @ad.global_lock
