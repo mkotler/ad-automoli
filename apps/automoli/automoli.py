@@ -1484,7 +1484,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 DEFAULT_UPDATE_STATS_DELAY,
                 stat="refreshTimer",
                 time=-1,
-                delay=0,
+                timeDelay=0,
             )
             self.clear_handles()
             return
@@ -1553,7 +1553,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
                     DEFAULT_UPDATE_STATS_DELAY,
                     stat="refreshTimer",
                     time=timer_info[0],
-                    delay=delay,
+                    timeDelay=delay,
                 )
 
             if self.warning_flash and refresh_type != "override_delay":
@@ -1573,7 +1573,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 DEFAULT_UPDATE_STATS_DELAY,
                 stat="refreshTimer",
                 time=0,
-                delay=0,
+                timeDelay=0,
             )
             self.lg(
                 f"{stack()[0][3]} | No delay was set or delay = 0, lights will not be switched off by AutoMoLi",
@@ -2955,7 +2955,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
 
         elif stat == "refreshTimer":
             time = kwargs.get("time")
-            self.sensor_lastTurnOffDelay = int(kwargs.get("delay", 0) or 0)
+            self.sensor_lastTurnOffDelay = int(kwargs.get("timeDelay", 0) or 0)
             # If time is -1 then lights were not actually turned on when refresh_timer
             # function was called so no need to track turning_off_at
             if time == -1:
