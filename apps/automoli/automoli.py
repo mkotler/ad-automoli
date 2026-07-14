@@ -386,10 +386,8 @@ class AutoMoLi(hass.Hass):  # type: ignore
             self.getarg("transition_on_daytime_switch", False)
         )
 
-        # activate lights when daytime switches
-        self.activate_on_daytime_switch: bool = bool(
-            self.getarg("activate_on_daytime_switch", False)
-        )
+        # Delay applying the no-motion default until motion sensors have been resolved.
+        activate_on_daytime_switch = self.getarg("activate_on_daytime_switch", MISSING)
 
         # state values
         self.states = {
@@ -592,18 +590,13 @@ class AutoMoLi(hass.Hass):  # type: ignore
             )
         )
 
-        # Set activate_on_daytime_switch to True if no motion sensors and not explicitly configured
-        if (
+        # Default to activation for rooms without motion sensors, while preserving explicit
+        # room-level or inherited True/False configuration.
+        self.activate_on_daytime_switch: bool = (
             not self.sensors[EntityType.MOTION.idx]
-            and "activate_on_daytime_switch" not in self.args
-            and not (
-                CONFIG_APPNAME in self.app_config
-                and hasattr(
-                    self.app_config[CONFIG_APPNAME], "activate_on_daytime_switch"
-                )
-            )
-        ):
-            self.activate_on_daytime_switch = True
+            if activate_on_daytime_switch is MISSING
+            else bool(activate_on_daytime_switch)
+        )
 
         self.room = Room(
             name=self.room_name,
