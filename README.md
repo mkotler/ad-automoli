@@ -21,6 +21,8 @@ Many thanks to **Ben Lebherz** ([@benleb](https://github.com/benleb) | [@ben_leb
 
 ## Installation
 
+**Requires AppDaemon 4.5.0 or newer.**
+
 [Download](https://github.com/mkotler/ad-automoli/tree/main/apps/automoli) the `automoli.py` file from inside the `apps/automoli` directory. Create an `automoli` directory under your local `apps` directory, then add the configuration to enable the `automoli` module.
 
 ### Example App Configuration

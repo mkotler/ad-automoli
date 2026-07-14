@@ -93,6 +93,7 @@ DEFAULT_OVERRIDE_DELAY = 60
 DEFAULT_WARNING_DELAY = 60
 WARNING_FLASH_EVENT_TIMEOUT = 30
 DEFAULT_COOLDOWN = 30
+MIN_AD_VERSION = "4.5.0"
 
 CONFIG_APPNAME = "default"
 EVENT_MOTION_XIAOMI = "xiaomi_aqara.motion"
@@ -388,11 +389,11 @@ class AutoMoLi(hass.Hass):  # type: ignore
             raise ValueError
 
         # appdaemon version check
-        if not self.has_min_ad_version("4.0.7"):
+        if not self.has_min_ad_version(MIN_AD_VERSION):
             self.lg("", icon=ALERT_ICON)
             self.lg("")
             self.lg(
-                f"Please update to {hl('AppDaemon >= 4.0.7')} at least! 🤪",
+                f"Please update to {hl(f'AppDaemon >= {MIN_AD_VERSION}')} at least! 🤪",
                 icon=ALERT_ICON,
             )
             self.lg("")
@@ -460,7 +461,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
         # night mode settings
         self.night_mode: dict[str, int | str] = {}
         if night_mode := self.getarg("night_mode", {}):
-            self.night_mode = self.configure_night_mode(night_mode)
+            self.night_mode = self.configure_night_mode(deepcopy(night_mode))
 
         # set up sensors that will disable automoli
         self.disabled_entities = set()
@@ -599,9 +600,9 @@ class AutoMoLi(hass.Hass):  # type: ignore
         if not self.lights:
             room_light_group = f"light.{self.room_name}"
             if self.entity_exists(room_light_group):
-                self.lights.add(room_light_group)
+                self.lights.append(room_light_group)
             else:
-                self.lights.update(
+                self.lights.extend(
                     self.find_sensors(EntityType.LIGHT.prefix, self.room_name, states)
                 )
 
@@ -640,9 +641,11 @@ class AutoMoLi(hass.Hass):  # type: ignore
 
         # requirements check:
         # - lights must exist
-        # - motion must exist or only using automoli to turn off lights manually turned on after delay
+        # - an activation source must exist: motion, externally switched lights, or daytime activation
         if not self.lights or not (
-            self.sensors[EntityType.MOTION.idx] or self.only_own_events == False
+            self.sensors[EntityType.MOTION.idx]
+            or self.only_own_events == False
+            or self.activate_on_daytime_switch
         ):
             self.lg("")
             self.lg(
@@ -834,6 +837,9 @@ class AutoMoLi(hass.Hass):  # type: ignore
         if self.after_off:
             self.args.update({"after_off": self.after_off})
 
+        # Let show_info list the registered callback handles separately from room settings.
+        self.args.update({"listeners": listener})
+
         # show parsed config
         self.show_info(self.args)
 
@@ -936,7 +942,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
             self.end_profiling()
 
     def has_min_ad_version(self, required_version: str) -> bool:
-        required_version = required_version if required_version else "4.0.7"
+        required_version = required_version if required_version else MIN_AD_VERSION
         return bool(Version(self.get_ad_version()) >= Version(required_version))
 
     def switch_daytime(self, kwargs: dict[str, Any]) -> None:
@@ -1591,7 +1597,15 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 dim_in_sec = int(delay) - self.dim["seconds_before"]
                 self.lg(f"{stack()[0][3]} | {dim_in_sec = }", level=logging.DEBUG)
 
-                handle = self.run_in(self.dim_lights, dim_in_sec, timeDelay=delay)
+                if dim_in_sec >= 0:
+                    handle = self.run_in(self.dim_lights, dim_in_sec, timeDelay=delay)
+                else:
+                    self.lg(
+                        f"Skipping dimming because seconds_before ({self.dim['seconds_before']}) "
+                        f"must not exceed the active delay ({delay})",
+                        level=logging.WARNING,
+                    )
+                    handle = self.run_in(self.lights_off, delay, timeDelay=delay)
 
             else:
                 handle = self.run_in(self.lights_off, delay, timeDelay=delay)
@@ -1601,7 +1615,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
             if timer_info := self.info_timer(handle):
                 self.lg(
                     f"{stack()[0][3]} | Scheduled callback to switch the lights off at "
-                    f"{datetime.strftime(timer_info[0], DATETIME_FORMAT)} dimming for {dim_in_sec}s | "
+                    f"{datetime.strftime(timer_info[0], DATETIME_FORMAT)} | "
                     f"{self.room.handles_automoli = }",
                     level=logging.DEBUG,
                 )
@@ -1613,7 +1627,11 @@ class AutoMoLi(hass.Hass):  # type: ignore
                     timeDelay=delay,
                 )
 
-            if self.warning_flash and refresh_type != "override_delay":
+            if (
+                self.warning_flash
+                and refresh_type != "override_delay"
+                and delay > DEFAULT_WARNING_DELAY
+            ):
                 handle = self.run_in(
                     self.warning_flash_off, (int(delay) - DEFAULT_WARNING_DELAY)
                 )
@@ -1622,6 +1640,16 @@ class AutoMoLi(hass.Hass):  # type: ignore
                     f"{stack()[0][3]} | Scheduled callback to turn lights on after warning flash | "
                     f"{handle = }",
                     level=logging.DEBUG,
+                )
+            elif (
+                self.warning_flash
+                and refresh_type != "override_delay"
+                and delay <= DEFAULT_WARNING_DELAY
+            ):
+                self.lg(
+                    f"Skipping warning flash because delay ({delay}) must be greater than "
+                    f"{DEFAULT_WARNING_DELAY} seconds",
+                    level=logging.WARNING,
                 )
 
         else:
@@ -2429,6 +2457,8 @@ class AutoMoLi(hass.Hass):  # type: ignore
 
         # Normally each restored "on" event removes its entity from _warning_lights.
         # Bound the tracking period in case a service call fails or no event arrives.
+        # During this window, a real external change to a still-tracked light is ignored
+        # as AutoMoLi-generated, so keep the timeout short and bounded.
         self.run_in(
             self.clear_warning_lights,
             WARNING_FLASH_EVENT_TIMEOUT,
@@ -2481,14 +2511,19 @@ class AutoMoLi(hass.Hass):  # type: ignore
 
         # check if a enable/disable entity is given and exists
         if not (
-            (nm_entity := night_mode.pop("entity")) and self.entity_exists(nm_entity)
+            (nm_entity := night_mode.pop("entity", None))
+            and self.entity_exists(nm_entity)
         ):
             self.lg(
                 f"{stack()[0][3]} | No night_mode entity given", level=logging.DEBUG
             )
             return {}
 
-        if not (nm_light_setting := night_mode.pop("light")):
+        if not (nm_light_setting := night_mode.pop("light", None)):
+            self.lg(
+                f"{stack()[0][3]} | No night_mode light setting given",
+                level=logging.DEBUG,
+            )
             return {}
 
         return {"entity": nm_entity, "light": nm_light_setting}
