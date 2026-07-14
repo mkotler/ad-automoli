@@ -33,7 +33,6 @@ from pprint import pformat
 from typing import Any
 import os
 
-
 # pylint: disable=import-error
 import hassapi as hass
 import adbase as ad
@@ -212,9 +211,9 @@ class AutoMoLi(hass.Hass):  # type: ignore
 
                 self.call_service(
                     "logbook/log",
-                    name=ha_name,  # type:ignore
-                    message=message,  # type:ignore
-                    entity_id=self.entity_id,  # type:ignore
+                    name=ha_name,  # type: ignore
+                    message=message,  # type: ignore
+                    entity_id=self.entity_id,  # type: ignore
                 )
 
     # Methods called by run_in can only have kwargs but cannot update self.lg
@@ -1664,7 +1663,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 for sensor in self.sensors[EntityType.HUMIDITY.idx]:
                     try:
                         current_humidity = float(
-                            self.get_state(sensor, copy=False)  # type:ignore
+                            self.get_state(sensor, copy=False)  # type: ignore
                         )
                     except ValueError as error:
                         self.lg(
@@ -1796,8 +1795,8 @@ class AutoMoLi(hass.Hass):  # type: ignore
 
                     self.call_service(
                         "light/turn_off",
-                        entity_id=light,  # type:ignore
-                        **dim_attributes,  # type:ignore
+                        entity_id=light,  # type: ignore
+                        **dim_attributes,  # type: ignore
                     )
                     self.set_state(entity_id=light, state="off")
                     if light in self._switched_on_by_automoli:
@@ -1885,14 +1884,14 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 if self.log_debug:
                     self.lg(
                         f"{stack()[0][3]} | {illuminance_threshold = } | "
-                        f"{float(get_state(sensor, copy=False)) = }",  # type:ignore
+                        f"{float(get_state(sensor, copy=False)) = }",  # type: ignore
                         level=logging.DEBUG,
                     )
                 try:
                     if (
                         illuminance := float(
-                            get_state(sensor, copy=False)  # type:ignore
-                        )  # type:ignore
+                            get_state(sensor, copy=False)  # type: ignore
+                        )  # type: ignore
                     ) >= illuminance_threshold:
                         self.lg(
                             f"According to {hl(sensor)} its already bright enough ¯\\_(ツ)_/¯"
@@ -1944,8 +1943,8 @@ class AutoMoLi(hass.Hass):  # type: ignore
                     if is_light and (force or self.dimming or state_off):
                         call_service(
                             "homeassistant/turn_on",
-                            entity_id=entity,  # type:ignore
-                            brightness_pct=light_setting,  # type:ignore
+                            entity_id=entity,  # type: ignore
+                            brightness_pct=light_setting,  # type: ignore
                         )
                         # If AutoMoLi is just changing the light % don't record it as a change
                         if state_off:
@@ -1958,7 +1957,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
                     # Otherwise turn on any lights that are off
                     elif not is_light and state_off:
                         call_service(
-                            "homeassistant/turn_on", entity_id=entity  # type:ignore
+                            "homeassistant/turn_on", entity_id=entity  # type: ignore
                         )
                         if not entity in self._switched_on_by_automoli:
                             self._switched_on_by_automoli.add(entity)
@@ -2028,8 +2027,8 @@ class AutoMoLi(hass.Hass):  # type: ignore
                     ):
                         call_service(
                             "hue/hue_activate_scene",
-                            group_name=self.friendly_name(entity),  # type:ignore
-                            scene_name=light_setting,  # type:ignore
+                            group_name=self.friendly_name(entity),  # type: ignore
+                            scene_name=light_setting,  # type: ignore
                         )
                         # Considering that activating a scene is the equivalent of turning it on
                         if not entity in self._switched_on_by_automoli:
@@ -2039,7 +2038,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
                         at_least_one_turned_on = True
                 elif get_state(entity, copy=False) == "off":
                     call_service(
-                        "homeassistant/turn_on", entity_id=entity  # type:ignore
+                        "homeassistant/turn_on", entity_id=entity  # type: ignore
                     )
                     if not entity in self._switched_on_by_automoli:
                         self._switched_on_by_automoli.add(entity)
@@ -2052,7 +2051,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 "script."
             ):
                 call_service(
-                    "homeassistant/turn_on", entity_id=light_setting  # type:ignore
+                    "homeassistant/turn_on", entity_id=light_setting  # type: ignore
                 )
 
             if at_least_one_turned_on:
@@ -2140,8 +2139,8 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 if self.only_own_events:
                     if entity in self._switched_on_by_automoli:
                         self.call_service(
-                            "homeassistant/turn_off", entity_id=entity  # type:ignore
-                        )  # type:ignore
+                            "homeassistant/turn_off", entity_id=entity  # type: ignore
+                        )  # type: ignore
                         if entity in self._switched_on_by_automoli:
                             self._switched_on_by_automoli.remove(entity)
                         if entity not in self._switched_off_by_automoli:
@@ -2149,8 +2148,8 @@ class AutoMoLi(hass.Hass):  # type: ignore
                         at_least_one_turned_off = True
                 else:
                     self.call_service(
-                        "homeassistant/turn_off", entity_id=entity  # type:ignore
-                    )  # type:ignore
+                        "homeassistant/turn_off", entity_id=entity  # type: ignore
+                    )  # type: ignore
                     if entity in self._switched_on_by_automoli:
                         self._switched_on_by_automoli.remove(entity)
                     if entity not in self._switched_off_by_automoli:
@@ -2342,8 +2341,8 @@ class AutoMoLi(hass.Hass):  # type: ignore
             if self.get_state(entity, copy=False) == "on":
                 self._warning_lights.add(entity)
                 self.call_service(
-                    "homeassistant/turn_off", entity_id=entity  # type:ignore
-                )  # type:ignore
+                    "homeassistant/turn_off", entity_id=entity  # type: ignore
+                )  # type: ignore
                 at_least_one_turned_off = True
 
         # turn lights on again in 1s
@@ -2354,8 +2353,8 @@ class AutoMoLi(hass.Hass):  # type: ignore
         # turn lights back on after 1s delay
         for entity in self._warning_lights:
             self.call_service(
-                "homeassistant/turn_on", entity_id=entity  # type:ignore
-            )  # type:ignore
+                "homeassistant/turn_on", entity_id=entity  # type: ignore
+            )  # type: ignore
         # wait 1 second to clear the variable that held the lights to turn back on;
         # the wait is so outside_change_detected will recognize that this was done by AutoMoLi
         self.run_in(lambda kwargs: self._warning_lights.clear(), 1)
