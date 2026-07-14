@@ -7,8 +7,11 @@ from __future__ import annotations
 
 # Automoli can be profiled for performance with line_profiler
 # There is a non-documented config variable for rooms "profile: True"
-# which will turn on profiling for the lights_on code path.  Add @profile
-# to other functions to profile them.
+# which will turn on profiling for the decorated code paths.
+# Only one room can be profiled at a time because line_profiler uses process-global state.
+from functools import wraps
+from threading import RLock
+
 PROFILING_AVAILABLE = True
 try:
     from line_profiler import LineProfiler
@@ -19,6 +22,30 @@ except ImportError:
 
     def profile(func):
         return func
+
+
+_profile_lock = RLock()
+_profile_owner = None
+
+
+def profile_if_enabled(func):
+    """Profile this method only for the room that owns the active profile session."""
+    if not PROFILING_AVAILABLE:
+        return func
+
+    profiled_func = profile(func)
+
+    @wraps(func)
+    def wrapper(self, *args, **kwargs):
+        if not getattr(self, "profiling_active", False):
+            return func(self, *args, **kwargs)
+
+        with _profile_lock:
+            if not self.profiling_active or _profile_owner is not self:
+                return func(self, *args, **kwargs)
+            return profiled_func(self, *args, **kwargs)
+
+    return wrapper
 
 
 from collections.abc import Iterable
@@ -303,6 +330,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
 
         # get a real dict for the configuration
         self.args: dict[str, Any] = dict(self.args)
+        self.profiling_active = False
         # set up listener for state events
         listener: set[Any, Any, Any] = set()
 
@@ -850,26 +878,58 @@ class AutoMoLi(hass.Hass):  # type: ignore
         # If line_profiler is installed and room configuration has "profile: True",
         # run a performance profile for the first 2 minutes after initialization
         if PROFILING_AVAILABLE and self.getarg("profile", False):
-            self.lg(f"Beginning to profile AutoMoLi code")
-            profile.enable_by_count()
+            self.start_profiling()
+
+    def start_profiling(self) -> None:
+        """Start the single allowed AutoMoLi profiling session."""
+        global _profile_owner
+
+        with _profile_lock:
+            if _profile_owner is not None:
+                self.lg(
+                    f"Profiling requested, but {_profile_owner.name} is already being profiled",
+                    level=logging.WARNING,
+                )
+                return
+
+            _profile_owner = self
+            self.profiling_active = True
             self.run_in(self.end_profiling, 120)
 
+        self.lg("Beginning to profile AutoMoLi code")
+
     def end_profiling(self, kwargs: dict[str, Any] | None = None):
-        profile.disable_by_count()
-        timestamp = datetime.now().strftime("%Y-%m-%dT%H%M%S")
-        file_name = f"{APP_NAME}_profile_{timestamp}.txt"
+        """Finish this room's profiling session and release exclusive ownership."""
+        global _profile_owner
 
-        # TODO: Update the hardcoded path to the path of the main_log file
-        log_path = "/config/logs"
-        if os.path.exists(log_path):
-            directory = log_path
-        else:
-            directory = os.getcwd()
-        path = os.path.join(directory, file_name)
+        with _profile_lock:
+            if _profile_owner is not self:
+                return
 
-        with open(path, "w") as file:
-            profile.print_stats(stream=file)
+            self.profiling_active = False
+            try:
+                timestamp = datetime.now().strftime("%Y-%m-%dT%H%M%S")
+                file_name = f"{APP_NAME}_profile_{timestamp}.txt"
+
+                # TODO: Update the hardcoded path to the path of the main_log file
+                log_path = "/config/logs"
+                if os.path.exists(log_path):
+                    directory = log_path
+                else:
+                    directory = os.getcwd()
+                path = os.path.join(directory, file_name)
+
+                with open(path, "w") as file:
+                    profile.print_stats(stream=file)
+            finally:
+                _profile_owner = None
+
         self.lg(f"Ending profile of AutoMoLi code")
+
+    def terminate(self) -> None:
+        """Release the profiler if AppDaemon stops or reloads the owning room."""
+        if getattr(self, "profiling_active", False):
+            self.end_profiling()
 
     def has_min_ad_version(self, required_version: str) -> bool:
         required_version = required_version if required_version else "4.0.7"
@@ -1009,7 +1069,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
             # cancel scheduled callbacks
             self.clear_handles()
 
-    @profile
+    @profile_if_enabled
     def motion_detected(
         self, entity: str, attribute: str, old: str, new: str, kwargs: dict[str, Any]
     ) -> None:
@@ -1423,7 +1483,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
             self.update_room_stats, DEFAULT_UPDATE_STATS_DELAY, stat="cooldownOff"
         )
 
-    @profile
+    @profile_if_enabled
     def clear_handles(self, handles: set[str] = MISSING) -> None:
         """clear scheduled timers/callbacks."""
 
@@ -1588,7 +1648,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
             )
             self.refresh_timer(refresh_type="override_delay")
 
-    @profile
+    @profile_if_enabled
     def is_disabled(self, onoff: str = None) -> bool:
         """check if automoli is disabled via home assistant entity"""
 
@@ -1628,7 +1688,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
 
         return False
 
-    @profile
+    @profile_if_enabled
     def is_blocked(self, onoff: str = None) -> bool:
         # Use local variables for sensor_attr to avoid repeated lookups
         sensor_attr = self.sensor_attr
@@ -1839,7 +1899,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
             # using 0.1 instead of 0 to workaround appdaemon issue #2405
             self.run_in(self.turned_off, 0.1)
 
-    @profile
+    @profile_if_enabled
     def lights_on(self, source: str = "<unknown>", force: bool = False) -> None:
         """Turn on the lights."""
 
