@@ -91,6 +91,7 @@ FORCE_LOG_SENSOR = "input_boolean.automoli_force_logging"
 DEFAULT_UPDATE_STATS_DELAY = 1
 DEFAULT_OVERRIDE_DELAY = 60
 DEFAULT_WARNING_DELAY = 60
+WARNING_FLASH_EVENT_TIMEOUT = 30
 DEFAULT_COOLDOWN = 30
 
 CONFIG_APPNAME = "default"
@@ -553,7 +554,8 @@ class AutoMoLi(hass.Hass):  # type: ignore
         self.disable_hue_groups: bool = self.getarg("disable_hue_groups", False)
 
         self.warning_flash: bool = self.getarg("warning_flash", False)
-        self._warning_lights: set[str] = set()
+        self._warning_lights: dict[str, int] = {}
+        self._warning_flash_id = 0
 
         # eol of the old option name
         if "disable_switch_entity" in self.args:
@@ -702,7 +704,9 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 del self.thresholds[sensor_type]
 
         # use user-defined daytimes if available
-        daytimes = self.build_daytimes(self.getarg("daytimes", DEFAULT_DAYTIMES))
+        daytimes = self.build_daytimes(
+            deepcopy(self.getarg("daytimes", DEFAULT_DAYTIMES))
+        )
 
         # set up event listener for each motion sensor
         for sensor in self.sensors[EntityType.MOTION.idx]:
@@ -1254,19 +1258,20 @@ class AutoMoLi(hass.Hass):  # type: ignore
             level=logging.DEBUG,
         )
 
+        # A warning flash keeps each light in _warning_lights until its restored "on"
+        # event arrives. This avoids relying on Home Assistant delivering the event
+        # within a fixed one-second window.
+        warning_flash_change = entity in self._warning_lights
+        if warning_flash_change and state == "on":
+            self._warning_lights.pop(entity, None)
+
         # ensure the change wasn't because of automoli
         if (
             state == "on"
-            and (
-                entity in self._switched_on_by_automoli
-                or entity in self._warning_lights
-            )
+            and (entity in self._switched_on_by_automoli or warning_flash_change)
         ) or (
             state == "off"
-            and (
-                entity in self._switched_off_by_automoli
-                or entity in self._warning_lights
-            )
+            and (entity in self._switched_off_by_automoli or warning_flash_change)
         ):
             self.lg(
                 f"{stack()[0][3]} | State change was due to automoli so ignoring",
@@ -2389,10 +2394,14 @@ class AutoMoLi(hass.Hass):  # type: ignore
         )
 
         # turn off lights that are on and save those in self._warning_lights to turn back on
+        self._warning_flash_id += 1
+        flash_id = self._warning_flash_id
+        warning_lights: list[str] = []
         at_least_one_turned_off = False
         for entity in self.lights:
             if self.get_state(entity, copy=False) == "on":
-                self._warning_lights.add(entity)
+                self._warning_lights[entity] = flash_id
+                warning_lights.append(entity)
                 self.call_service(
                     "homeassistant/turn_off", entity_id=entity  # type: ignore
                 )  # type: ignore
@@ -2400,17 +2409,39 @@ class AutoMoLi(hass.Hass):  # type: ignore
 
         # turn lights on again in 1s
         if at_least_one_turned_off:
-            self.run_in(self.warning_flash_on, 1)
+            self.run_in(
+                self.warning_flash_on,
+                1,
+                flash_id=flash_id,
+                entities=warning_lights,
+            )
 
-    def warning_flash_on(self, _: dict[str, Any] | None = None) -> None:
+    def warning_flash_on(self, kwargs: dict[str, Any] | None = None) -> None:
         # turn lights back on after 1s delay
-        for entity in self._warning_lights:
-            self.call_service(
-                "homeassistant/turn_on", entity_id=entity  # type: ignore
-            )  # type: ignore
-        # wait 1 second to clear the variable that held the lights to turn back on;
-        # the wait is so outside_change_detected will recognize that this was done by AutoMoLi
-        self.run_in(lambda kwargs: self._warning_lights.clear(), 1)
+        kwargs = kwargs or {}
+        flash_id = kwargs.get("flash_id")
+        warning_lights = kwargs.get("entities", [])
+        for entity in warning_lights:
+            if self._warning_lights.get(entity) == flash_id:
+                self.call_service(
+                    "homeassistant/turn_on", entity_id=entity  # type: ignore
+                )  # type: ignore
+
+        # Normally each restored "on" event removes its entity from _warning_lights.
+        # Bound the tracking period in case a service call fails or no event arrives.
+        self.run_in(
+            self.clear_warning_lights,
+            WARNING_FLASH_EVENT_TIMEOUT,
+            flash_id=flash_id,
+            entities=warning_lights,
+        )
+
+    def clear_warning_lights(self, kwargs: dict[str, Any]) -> None:
+        """Clear warning-flash entries that still belong to the completed cycle."""
+        flash_id = kwargs.get("flash_id")
+        for entity in kwargs.get("entities", []):
+            if self._warning_lights.get(entity) == flash_id:
+                self._warning_lights.pop(entity, None)
 
     def find_sensors(
         self, keyword: str, room_name: str, states: dict[str, dict[str, Any]]
@@ -2462,7 +2493,10 @@ class AutoMoLi(hass.Hass):  # type: ignore
 
         return {"entity": nm_entity, "light": nm_light_setting}
 
-    def build_daytimes(self, daytimes: list[Any]) -> list[dict[str, int | str]] | None:
+    def build_daytimes(self, daytimes: list[Any]) -> list[dict[str, int | str]]:
+        if not daytimes:
+            raise ValueError("At least one daytime must be configured")
+
         starttimes: set[time] = set()
 
         for idx, daytime in enumerate(daytimes):
