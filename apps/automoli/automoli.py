@@ -1566,9 +1566,15 @@ class AutoMoLi(hass.Hass):  # type: ignore
     def refresh_timer(self, refresh_type: str = "normal") -> None:
         """refresh delay timer."""
 
-        # Check that any lights were actually turned on.  For example, lights_on may have
-        # been called but no lights were turned on if light setting was at 0%.
-        if all([self.get_state(light, copy=False) == "off" for light in self.lights]):
+        # Check that any lights were actually turned on. For example, lights_on may have
+        # been called but no lights were turned on if the light setting was 0%. Home
+        # Assistant may also report the old state immediately after a turn-on service
+        # call, so treat lights tracked as turned on by AutoMoLi as active.
+        if all(
+            self.get_state(light, copy=False) == "off"
+            and light not in self._switched_on_by_automoli
+            for light in self.lights
+        ):
             self.lg(
                 f"{stack()[0][3]} | Lights were not turned on so clearing all timers. ",
                 level=logging.DEBUG,
