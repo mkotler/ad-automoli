@@ -284,6 +284,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
         self,
         list_or_string: list[str] | set[str] | str | Any,
         entities_exist: bool = True,
+        config_name: str | None = None,
     ) -> set[str]:
         entity_list: list[str] = []
 
@@ -297,9 +298,25 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 f"not 'Union[List[str], Set[str], str]'"
             )
 
-        return set(
-            filter(self.entity_exists, entity_list) if entities_exist else entity_list
-        )
+        entities = set(entity_list)
+        if not entities_exist:
+            return entities
+
+        existing_entities = set(filter(self.entity_exists, entities))
+        missing_entities = entities - existing_entities
+        if missing_entities:
+            config_context = (
+                f" in configuration option '{config_name}'" if config_name else ""
+            )
+            self.lg(
+                f"Configured {'entity does' if len(missing_entities) == 1 else 'entities do'} "
+                f"not exist{config_context} and will be ignored: "
+                f"{', '.join(sorted(missing_entities))}",
+                level=logging.WARNING,
+                icon=ALERT_ICON,
+            )
+
+        return existing_entities
 
     def getarg(
         self,
@@ -466,7 +483,10 @@ class AutoMoLi(hass.Hass):  # type: ignore
         # set up sensors that will disable automoli
         self.disabled_entities = set()
         self.disable_switch_entities: list[str] = list(
-            self.listr(self.getarg("disable_switch_entities", set()))
+            self.listr(
+                self.getarg("disable_switch_entities", set()),
+                config_name="disable_switch_entities",
+            )
         )
         self.disable_switch_states: set[str] = self.listr(
             self.getarg("disable_switch_states", set(["off"])), False
@@ -486,7 +506,10 @@ class AutoMoLi(hass.Hass):  # type: ignore
         # set up sensors that will block turning on lights
         self.block_on_entities = set()
         self.block_on_switch_entities: list[str] = list(
-            self.listr(self.getarg("block_on_switch_entities", set()))
+            self.listr(
+                self.getarg("block_on_switch_entities", set()),
+                config_name="block_on_switch_entities",
+            )
         )
         self.block_on_switch_states: set[str] = self.listr(
             self.getarg("block_on_switch_states", set(["off"])), False
@@ -509,7 +532,10 @@ class AutoMoLi(hass.Hass):  # type: ignore
         # set up sensors that will block turning off lights
         self.block_off_entities = set()
         self.block_off_switch_entities: list[str] = list(
-            self.listr(self.getarg("block_off_switch_entities", set()))
+            self.listr(
+                self.getarg("block_off_switch_entities", set()),
+                config_name="block_off_switch_entities",
+            )
         )
         self.block_off_switch_states: set[str] = self.listr(
             self.getarg("block_off_switch_states", set(["off"])), False
@@ -531,7 +557,8 @@ class AutoMoLi(hass.Hass):  # type: ignore
 
         # sensors that will change current default delay
         self.override_delay_entities: set[str] = self.listr(
-            self.getarg("override_delay_entities", set())
+            self.getarg("override_delay_entities", set()),
+            config_name="override_delay_entities",
         )
         self.override_delay: int = int(
             self.getarg("override_delay", DEFAULT_OVERRIDE_DELAY)
@@ -576,7 +603,9 @@ class AutoMoLi(hass.Hass):  # type: ignore
         states = self.get_state()
 
         # define light entities switched by automoli
-        self.lights: list[str] = list(self.listr(self.getarg("lights", set())))
+        self.lights: list[str] = list(
+            self.listr(self.getarg("lights", set()), config_name="lights")
+        )
 
         # warn and remove scenes and scripts from lights and recommend using after_on or after_off
         scene_or_script_found = False
@@ -607,8 +636,12 @@ class AutoMoLi(hass.Hass):  # type: ignore
                 )
 
         # define a set of entities that will be switched on after lights are turned on / off
-        self.after_on: set[str] = self.listr(self.getarg("after_on", set()))
-        self.after_off: set[str] = self.listr(self.getarg("after_off", set()))
+        self.after_on: set[str] = self.listr(
+            self.getarg("after_on", set()), config_name="after_on"
+        )
+        self.after_off: set[str] = self.listr(
+            self.getarg("after_off", set()), config_name="after_off"
+        )
 
         # sensors
         self.sensors: dict[str, Any] = {}
@@ -618,7 +651,8 @@ class AutoMoLi(hass.Hass):  # type: ignore
             self.getarg(
                 "motion",
                 self.find_sensors(EntityType.MOTION.prefix, self.room_name, states),
-            )
+            ),
+            config_name="motion",
         )
 
         # Default to activation for rooms without motion sensors, while preserving explicit
@@ -693,7 +727,7 @@ class AutoMoLi(hass.Hass):  # type: ignore
 
             if sensor_type in self.thresholds and self.thresholds[sensor_type]:
                 self.sensors[sensor_type] = self.listr(
-                    self.getarg(sensor_type, None)
+                    self.getarg(sensor_type, None), config_name=sensor_type
                 ) or self.find_sensors(KEYWORDS[sensor_type], self.room_name, states)
 
                 self.lg(f"{self.sensors[sensor_type] = }", level=logging.DEBUG)
@@ -836,9 +870,6 @@ class AutoMoLi(hass.Hass):  # type: ignore
             self.args.update({"after_on": self.after_on})
         if self.after_off:
             self.args.update({"after_off": self.after_off})
-
-        # Let show_info list the registered callback handles separately from room settings.
-        self.args.update({"listeners": listener})
 
         # show parsed config
         self.show_info(self.args)
